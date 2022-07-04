@@ -103,6 +103,9 @@ def call_execute_on_grounded_atom(gnd, typ, args):
 class NoReduceError(Exception):
     pass
 
+class RuntimeExecError(Exception):
+    pass
+
 def atoms_are_equivalent(first, second):
     return hp.atoms_are_equivalent(first.catom, second.catom)
 

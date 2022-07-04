@@ -123,6 +123,12 @@ class AtomTest(unittest.TestCase):
         self.assertEqual(interpret(space, E(noReduceAtom, ValueAtom(1))),
                 [E(noReduceAtom, ValueAtom(1))])
 
+    def test_custom_error(self):
+        space = GroundingSpace()
+        expr = E(raiseErrorAtom, ValueAtom("Test error"))
+        self.assertEqual(interpret(space, expr),
+                [E(MettaKeyword.ERROR, expr, "Test error")])
+
 # No unwrap
 def x2_op(atom):
     return [ValueAtom(2 * atom.get_object().value)]
@@ -131,3 +137,7 @@ x2Atom = OperationAtom('*2', x2_op, unwrap=False)
 def no_reduce_op(atom):
     raise NoReduceError()
 noReduceAtom = OperationAtom('no-reduce', no_reduce_op, unwrap=False)
+
+def raise_error_op(atom, msg):
+    raise RuntimeExecError(msg.get_object().value)
+raiseErrorAtom = OperationAtom('raise-error', raise_error_op, unwrap=False)
