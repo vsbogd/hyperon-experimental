@@ -71,3 +71,18 @@ class MeTTaTest(unittest.TestCase):
 
     def test_scripts(self):
         self.process_exceptions(MeTTa().import_file("scripts/a1_symbols.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/a2_opencoggy.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/a3_twoside.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/b0_chaining_prelim.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/b1_equal_chain.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/b2_backchain.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/b3_direct.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/b4_nondeterm.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/b5_types_prelim.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/c1_grounded_basic.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/c2_spaces.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/c3_pln_stv.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/d1_gadt.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/d2_higherfunc.metta"))
+        self.process_exceptions(MeTTa().import_file("scripts/d3_deptypes.metta"))
+
