@@ -57,15 +57,15 @@ fn add_super_types(space: &dyn Space, sub_types: &mut Vec<Atom>, from: usize) {
     }
 }
 
-fn check_types(actual: &[Vec<Atom>], expected: &[Atom], bindings: Bindings) -> Vec<Bindings> {
-    log::trace!("check_types: actual: {:?}, expected: {:?}", actual, expected);
+fn check_arg_types(actual: &[Vec<Atom>], expected: &[Atom], bindings: Bindings) -> Vec<Bindings> {
+    log::trace!("check_arg_types: actual: {:?}, expected: {:?}, bindings: {:?}", actual, expected, bindings);
     let matched = match (actual, expected) {
         ([actual, actual_tail @ ..], [expected, expected_tail @ ..]) => {
             let mut result = Vec::new();
             for typ in actual {
-                match_reducted_types_v2(typ, expected)
+                match_actual_and_expected_type(typ, expected)
                     .flat_map(|b| Bindings::merge_v2(&bindings, &b))
-                    .flat_map(|b| check_types(actual_tail, expected_tail, b))
+                    .flat_map(|b| check_arg_types(actual_tail, expected_tail, b))
                     .for_each(|b| result.push(b))
             }
             result
@@ -73,7 +73,7 @@ fn check_types(actual: &[Vec<Atom>], expected: &[Atom], bindings: Bindings) -> V
         ([], []) => vec![bindings],
         _ => vec![],
     };
-    log::trace!("check_types: actual: {:?}, expected: {:?}, matched: {:?}", actual, expected, matched);
+    log::trace!("check_arg_types: actual: {:?}, expected: {:?}, matched: {:?}", actual, expected, matched);
     matched
 }
 
@@ -262,7 +262,7 @@ fn get_application_types(space: &dyn Space, atom: &Atom, expr: &ExpressionAtom) 
         for fn_type in fn_types {
             has_function_types = true;
             let (expected_arg_types, ret_typ) = get_arg_types(&fn_type);
-            for bindings in check_types(actual_arg_types.as_slice(), expected_arg_types, Bindings::new()) {
+            for bindings in check_arg_types(actual_arg_types.as_slice(), expected_arg_types, Bindings::new()) {
                 types.push(apply_bindings_to_atom(&ret_typ, &bindings));
             }
         }
@@ -273,6 +273,65 @@ fn get_application_types(space: &dyn Space, atom: &Atom, expr: &ExpressionAtom) 
     } else {
         None
     }
+}
+
+/// Matches two types and puts new variable bindings into `bindings`. Returns
+/// true when match is found. Function matches types using previous bindings
+/// passed. If match is not found some new bindings can still be added. If
+/// caller need bindings unchanged it should pass a copy.
+///
+/// # Examples
+///
+/// ```
+/// use hyperon::{expr, bind};
+/// use hyperon::matcher::Bindings;
+/// use hyperon::metta::types::match_reducted_types;
+///
+/// let mut bindings = Bindings::new();
+/// let is_matched = match_reducted_types(&expr!("List" t), &expr!("List" "A"), &mut bindings);
+///
+/// assert!(is_matched);
+/// assert_eq!(bindings, bind!{ t: expr!("A") });
+/// ```
+pub fn match_reducted_types(actual: &Atom, expected: &Atom, bindings: &mut Bindings) -> bool {
+    let result: Vec<Bindings> = match_actual_and_expected_type(actual, expected).collect();
+    assert!(result.len() <= 1, "Single result is expected because custom matching for types is not supported yet!");
+    let matched = if !result.is_empty() {
+        match Bindings::merge(bindings, result.get(0).unwrap()) {
+            Some(b) => {
+                *bindings = b;
+                true
+            },
+            None => false,
+        }
+    } else {
+        false
+    };
+    log::debug!("match_reducted_types: {} ~ {} => {}, bindings: {}", actual, expected, matched, bindings);
+    matched
+}
+
+fn match_actual_and_expected_type(actual: &Atom, expected: &Atom) -> matcher::MatchResultIter {
+    let actual = replace_undefined_types(actual);
+    // In order to keep old behavior for the dependent types the following
+    // workaround is implemented. When matching two types expected and actual,
+    // variables in actual type doesn't match the meta-types from expected atom.
+    // In order to implement this all variables in actual type are
+    // replaced by VariableMatch grounded atom which ignores meta-types passed.
+    // For the usual type it returns the type binding of the original variable.
+    let expected = replace_meta_types(expected);
+    // FIXME: there is still asymmetry in arguments of the match_atoms() because
+    // when two grounded atoms are passed the match_() of the first argument
+    // is applied. It is the reason why we should pass expected first. It contains
+    // grounded atoms instead of variables and they should have a priority.
+    matcher::match_atoms(&expected, &actual)
+}
+
+fn replace_undefined_types(atom: &Atom) -> Atom {
+    let mut atom = atom.clone();
+    atom.iter_mut().filter(|atom| **atom == ATOM_TYPE_UNDEFINED)
+        .for_each(|atom| *atom = Atom::gnd(UndefinedTypeMatch{}));
+    atom
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -298,53 +357,65 @@ impl Grounded for UndefinedTypeMatch {
     }
 }
 
-/// Matches two types and puts new variable bindings into `bindings`. Returns
-/// true when match is found. Function matches types using previous bindings
-/// passed. If match is not found some new bindings can still be added. If
-/// caller need bindings unchanged it should pass a copy.
-///
-/// # Examples
-///
-/// ```
-/// use hyperon::{expr, bind};
-/// use hyperon::matcher::Bindings;
-/// use hyperon::metta::types::match_reducted_types;
-///
-/// let mut bindings = Bindings::new();
-/// let is_matched = match_reducted_types(&expr!("List" t), &expr!("List" "A"), &mut bindings);
-///
-/// assert!(is_matched);
-/// assert_eq!(bindings, bind!{ t: expr!("A") });
-/// ```
-pub fn match_reducted_types(left: &Atom, right: &Atom, bindings: &mut Bindings) -> bool {
-    let result: Vec<Bindings> = match_reducted_types_v2(left, right).collect();
-    assert!(result.len() <= 1, "Single result is expected because custom matching for types is not supported yet!");
-    let matched = if !result.is_empty() {
-        match Bindings::merge(bindings, result.get(0).unwrap()) {
-            Some(b) => {
-                *bindings = b;
-                true
-            },
-            None => false,
-        }
-    } else {
-        false
-    };
-    log::debug!("match_reducted_types: {} ~ {} => {}, bindings: {}", left, right, matched, bindings);
-    matched
-}
-
-pub fn match_reducted_types_v2(left: &Atom, right: &Atom) -> matcher::MatchResultIter {
-    let left = replace_undefined_types(left);
-    let right = replace_undefined_types(right);
-    matcher::match_atoms(&left, &right)
-}
-
-fn replace_undefined_types(atom: &Atom) -> Atom {
+fn replace_meta_types(atom: &Atom) -> Atom {
     let mut atom = atom.clone();
-    atom.iter_mut().filter(|atom| **atom == ATOM_TYPE_UNDEFINED)
-        .for_each(|atom| *atom = Atom::gnd(UndefinedTypeMatch{}));
+    atom.iter_mut().for_each(|atom| {
+        if *atom == ATOM_TYPE_UNDEFINED {
+            *atom = Atom::gnd(UndefinedTypeMatch{});
+        } else {
+            match atom {
+                Atom::Variable(var) => {
+                    *atom = Atom::gnd(VariableMatch::new(var.clone()));
+                },
+                _ => {},
+            }
+        }
+    });
     atom
+}
+
+#[derive(Clone, PartialEq)]
+struct VariableMatch {
+    var: VariableAtom,
+}
+
+impl std::fmt::Display for VariableMatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "VariableMatch({})", self.var)
+    }
+}
+
+impl std::fmt::Debug for VariableMatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
+impl VariableMatch {
+    fn new(var: VariableAtom) -> Self {
+        Self{ var }
+    }
+}
+
+impl Grounded for VariableMatch {
+    fn type_(&self) -> Atom {
+        ATOM_TYPE_TYPE
+    }
+
+    fn match_(&self, other: &Atom) -> crate::matcher::MatchResultIter {
+        if *other == ATOM_TYPE_ATOM || *other == ATOM_TYPE_SYMBOL
+            || *other == ATOM_TYPE_VARIABLE || *other == ATOM_TYPE_EXPRESSION
+            || *other == ATOM_TYPE_GROUNDED || *other == ATOM_TYPE_UNDEFINED {
+            Box::new(std::iter::empty())
+        } else {
+            let bindings = Bindings::new().add_var_binding_v2(&self.var, other);
+            Box::new(bindings.into_iter())
+        }
+    }
+
+    fn execute(&self, _args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError> {
+        execute_not_executable(self)
+    }
 }
 
 fn get_matched_types(space: &dyn Space, atom: &Atom, typ: &Atom) -> Vec<(Atom, Bindings)> {
@@ -352,7 +423,7 @@ fn get_matched_types(space: &dyn Space, atom: &Atom, typ: &Atom) -> Vec<(Atom, B
     types.drain(0..).flat_map(|t| {
         // TODO: write a unit test
         let t = make_variables_unique(t);
-        match_reducted_types_v2(&t, typ).map(move |bindings| (t.clone(), bindings))
+        match_actual_and_expected_type(&t, typ).map(move |bindings| (t.clone(), bindings))
     }).collect()
 }
 
@@ -578,7 +649,6 @@ mod tests {
         assert!(validate_atom(&space, &expr!("=" ("f" x) x)));
     }
 
-    #[ignore = "FIXME: fix type checking logic"]
     #[test]
     fn simple_dep_types() {
         let space = metta_space("

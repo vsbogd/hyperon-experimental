@@ -715,6 +715,8 @@ fn match_atoms_recursively(left: &Atom, right: &Atom) -> MatchResultIter {
         // two way to calculate match: (1) pass variable to the
         // GroundedAtom::match(); (2) assign GroundedAtom to the Variable.
         // Returning both results breaks tests right now.
+        // TODO: what to do when both sides are grounded atoms with custom
+        // match_() implementation?
         (Atom::Grounded(a), _) => {
             Box::new(a.match_(right))
         },
