@@ -174,15 +174,11 @@ fn get_args(expr: &ExpressionAtom) -> &[Atom] {
 /// ```
 pub fn get_atom_types(space: &dyn Space, atom: &Atom) -> Vec<Atom> {
     log::trace!("get_atom_types: atom: {}", atom);
-    let types = match atom {
-        // TODO: type of the variable could be actually a type variable,
-        // in this case inside each variant of type for the atom we should
-        // also keep bindings for the type variables. For example,
-        // we have an expression `(let $n (foo) (+ $n $n))`, where
-        // `(: let (-> $t $t $r $r))`, `(: foo (-> $tt))`,
-        // and `(: + (-> Num Num Num))`then type checker can find that
-        // `{ $r = $t = $tt = Num }`.
-        Atom::Variable(_) => vec![ATOM_TYPE_UNDEFINED],
+    let mut types = match atom {
+        Atom::Variable(_) => {
+            let v = VariableAtom::new("var_type").make_unique();
+            vec![Atom::Variable(v)]
+        },
         Atom::Grounded(gnd) => vec![gnd.type_()],
         Atom::Symbol(_) => {
             let mut types = query_types(space, atom);
@@ -205,6 +201,7 @@ pub fn get_atom_types(space: &dyn Space, atom: &Atom) -> Vec<Atom> {
             types
         },
     };
+    types.dedup();
     log::debug!("get_atom_types: return atom {} types {:?}", atom, types);
     types
 }
