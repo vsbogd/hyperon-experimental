@@ -6,7 +6,7 @@ use crate::metta::*;
 use crate::metta::text::Tokenizer;
 use crate::metta::interpreter::interpret;
 use crate::metta::runner::Metta;
-use crate::metta::types::get_atom_types;
+use crate::metta::types::{get_atom_types, get_meta_type};
 use crate::common::shared::Shared;
 use crate::common::assert::vec_eq_no_order;
 
@@ -110,15 +110,15 @@ impl Grounded for ImportOp {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct MatchOp {}
+pub struct Match2Op {}
 
-impl Display for MatchOp {
+impl Display for Match2Op {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "match")
+        write!(f, "match-2")
     }
 }
 
-impl Grounded for MatchOp {
+impl Grounded for Match2Op {
     fn type_(&self) -> Atom {
         Atom::expr([ARROW_SYMBOL, rust_type_atom::<Shared<GroundingSpace>>(), ATOM_TYPE_ATOM, ATOM_TYPE_ATOM, ATOM_TYPE_UNDEFINED])
     }
@@ -692,15 +692,7 @@ impl Grounded for PragmaOp {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct GetTypeOp {
-    space: Shared<GroundingSpace>,
-}
-
-impl GetTypeOp {
-    pub fn new(space: Shared<GroundingSpace>) -> Self {
-        Self{ space }
-    }
-}
+pub struct GetTypeOp {}
 
 impl Display for GetTypeOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -710,14 +702,42 @@ impl Display for GetTypeOp {
 
 impl Grounded for GetTypeOp {
     fn type_(&self) -> Atom {
-        Atom::expr([ARROW_SYMBOL, ATOM_TYPE_ATOM, ATOM_TYPE_ATOM])
+        Atom::expr([ARROW_SYMBOL, ATOM_TYPE_ATOM, ATOM_TYPE_ATOM, ATOM_TYPE_ATOM])
     }
 
     fn execute(&self, args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError> {
         let arg_error = || ExecError::from("get-type expects single atom as an argument");
         let atom = args.get(0).ok_or_else(arg_error)?;
+        let space = args.get(1).ok_or_else(arg_error)?;
+        let space = Atom::as_gnd::<Shared<GroundingSpace>>(space).ok_or("match expects a space as the first argument")?;
 
-        Ok(get_atom_types(self.space.borrow().deref(), atom))
+        Ok(get_atom_types(space.borrow().deref(), atom))
+    }
+
+    fn match_(&self, other: &Atom) -> MatchResultIter {
+        match_by_equality(self, other)
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct GetMetaTypeOp { }
+
+impl Display for GetMetaTypeOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "get-metatype")
+    }
+}
+
+impl Grounded for GetMetaTypeOp {
+    fn type_(&self) -> Atom {
+        Atom::expr([ARROW_SYMBOL, ATOM_TYPE_ATOM, ATOM_TYPE_ATOM])
+    }
+
+    fn execute(&self, args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError> {
+        let arg_error = || ExecError::from("get-metatype expects single atom as an argument");
+        let atom = args.get(0).ok_or_else(arg_error)?;
+
+        Ok(vec![get_meta_type(&atom)])
     }
 
     fn match_(&self, other: &Atom) -> MatchResultIter {
@@ -955,7 +975,7 @@ impl Display for StateAtom {
 
 impl Grounded for StateAtom {
     fn type_(&self) -> Atom {
-        // TODO? Wrap metatypes for non-grounded atoms 
+        // TODO? Wrap metatypes for non-grounded atoms
         // rust_type_atom::<StateAtom>() instead of StateMonad symbol might be used
         let atom = &*self.state.borrow();
         let typ = match atom {
@@ -1065,8 +1085,8 @@ pub fn register_common_tokens(metta: &Metta) {
     let tokenizer = &metta.tokenizer;
     let mut tref = tokenizer.borrow_mut();
 
-    let match_op = Atom::gnd(MatchOp{});
-    tref.register_token(regex(r"match"), move |_| { match_op.clone() });
+    let match_op = Atom::gnd(Match2Op{});
+    tref.register_token(regex(r"match-2"), move |_| { match_op.clone() });
     let bind_op = Atom::gnd(BindOp::new(tokenizer.clone()));
     tref.register_token(regex(r"bind!"), move |_| { bind_op.clone() });
     let new_space_op = Atom::gnd(NewSpaceOp{});
@@ -1099,6 +1119,10 @@ pub fn register_common_tokens(metta: &Metta) {
     tref.register_token(regex(r"change-state!"), move |_| { change_state_op.clone() });
     let get_state_op = Atom::gnd(GetStateOp{});
     tref.register_token(regex(r"get-state"), move |_| { get_state_op.clone() });
+    let get_type_op = Atom::gnd(GetTypeOp{});
+    tref.register_token(regex(r"get-type"), move |_| { get_type_op.clone() });
+    let get_meta_type_op = Atom::gnd(GetMetaTypeOp{});
+    tref.register_token(regex(r"get-metatype"), move |_| { get_meta_type_op.clone() });
 }
 
 pub fn register_runner_tokens(metta: &Metta, cwd: PathBuf) {
@@ -1117,8 +1141,6 @@ pub fn register_runner_tokens(metta: &Metta, cwd: PathBuf) {
     tref.register_token(regex(r"collapse"), move |_| { collapse_op.clone() });
     let superpose_op = Atom::gnd(SuperposeOp::new(space.clone()));
     tref.register_token(regex(r"superpose"), move |_| { superpose_op.clone() });
-    let get_type_op = Atom::gnd(GetTypeOp::new(space.clone()));
-    tref.register_token(regex(r"get-type"), move |_| { get_type_op.clone() });
     // TODO: here clone of the metta is moved into separate location in memory.
     // It means that shared reference inside ImportOp points into a different
     // instance of the Metta struct, not one which is referenced by metta.
@@ -1164,16 +1186,84 @@ pub fn register_rust_tokens(metta: &Metta) {
     metta.tokenizer.borrow_mut().move_front(&mut rust_tokens);
 }
 
-pub fn metta_code() -> &'static str {
-    // `$then`, `$else` should be of `Atom` type to avoid evaluation
-    // and infinite cycle in inference
-    "
-    (: if (-> Bool Atom Atom $t))
-    (= (if True $then $else) $then)
-    (= (if False $then $else) $else)
-    (: Error (-> Atom Atom ErrorType))
-    "
-}
+pub static METTA_CODE: &'static str = "
+
+;`$then`, `$else` should be of `Atom` type to avoid evaluation
+; and infinite cycle in inference
+(: if (-> Bool Atom Atom $t))
+(= (if True $then $else) $then)
+(= (if False $then $else) $else)
+
+(: Error (-> Atom Atom ErrorType))
+
+(= (switch $atom $cases)
+  (chain (decons $cases) $list (eval (switch-internal $atom $list))))
+(= (switch-internal $atom (($pattern $template) $tail))
+  (match $atom $pattern $template (eval (switch $atom $tail))))
+
+(= (subst $atom $var $templ)
+  (match $atom $var $templ
+    (Return (Error (subst $atom $var $templ)
+      \"subst expects a variable as a second argument\")) ))
+
+(= (eval-or-default $atom $default)
+  (chain (eval $atom) $result
+    (match $result (Return Empty) $default $result) ))
+
+(= (reduce $atom $var $templ)
+  (chain (eval $atom) $res
+    (match $res (Return (Error $_atom $_msg))
+      $res
+      (match $res (Return Empty)
+        (eval (subst $atom $var $templ))
+        (match $res (Return $val)
+          (eval (subst $val $var $templ))
+          (eval (reduce $res $var $templ)) )))))
+
+(= (type-cast $atom $type $space)
+  (eval (reduce (get-type $atom $space) $actual-type
+    (eval (switch ($actual-type $type)
+      (
+        ((%Undefined% $_) (Return $atom))
+        (($_ %Undefined%) (Return $atom))
+        (($type $_) (Return $atom))
+        ($_ (Return Empty)) ))))))
+
+(= (is-function $type)
+  (eval (reduce (car $type) $head
+    (match -> $head (Return True) (Return False)) )))
+
+(= (interpret $atom $type $space)
+  (eval (reduce (get-metatype $atom) $meta
+    (eval (switch ($type $meta)
+      (
+        ((Atom $_meta) (Return $atom))
+        (($meta $meta) (Return $atom))
+        (($_type Variable) (Return $atom))
+
+        (($_type Symbol) (eval (type-cast $atom $type $space)))
+        (($_type Grounded) (eval (type-cast $atom $type $space)))
+        (($_type Expression) (eval (interpret-expression $atom $type $space))) ))))))
+
+(= (interpret-expression $atom $type $space)
+  (chain (decons $atom) $list
+    (match ($op $args) $list
+      (eval (reduce (get-type $op $space) $op-type
+        (eval (reduce (is-function $op-type) $is-func
+          (match True $is-func
+            (Return (Error $atom \"Functions processing is not implemented yet\"))
+            (eval (reduce (interpret-children $atom $space) $tuple (eval (eval-or-default $tuple $tuple))))
+          )))))
+      (eval (type-cast $atom $type $space)) )))
+
+(= (interpret-children $atom $space)
+  (chain (decons $atom) $list
+    (match ($head $tail) $list
+      (eval (reduce (interpret $head %Undefined% $space) $rhead
+        (eval (reduce (interpret-children $tail $space) $rtail
+          (chain (cons $rhead $rtail) $cons (Return $cons))))))
+      (Return $atom) )))
+";
 
 #[cfg(test)]
 mod tests {
@@ -1188,7 +1278,7 @@ mod tests {
             !(match &self (A B) (B A))
         "));
 
-        let match_op = MatchOp{};
+        let match_op = Match2Op{};
 
         assert_eq!(match_op.execute(&mut vec![expr!({space}), expr!("A" "B"), expr!("B" "A")]),
             Ok(vec![expr!("B" "A")]));
@@ -1282,7 +1372,7 @@ mod tests {
         assert_eq!(case_op.execute(&mut vec![expr!(("foo")),
                 expr!(((n "B") n) ("%void%" "D"))]),
             Ok(vec![Atom::sym("A")]));
-        assert_eq!(case_op.execute(&mut vec![expr!({MatchOp{}} {space} ("B" "C") ("C" "B")),
+        assert_eq!(case_op.execute(&mut vec![expr!({Match2Op{}} {space} ("B" "C") ("C" "B")),
                 expr!(((n "C") n) ("%void%" "D"))]),
             Ok(vec![Atom::sym("D")]));
     }
@@ -1439,8 +1529,8 @@ mod tests {
             (: A C)
         "));
 
-        let get_type_op = GetTypeOp::new(space);
-        assert_eq_no_order!(get_type_op.execute(&mut vec![sym!("A")]).unwrap(),
+        let get_type_op = GetTypeOp{};
+        assert_eq_no_order!(get_type_op.execute(&mut vec![sym!("A"), expr!({space.clone()})]).unwrap(),
             vec![sym!("B"), sym!("C")]);
     }
 
@@ -1452,10 +1542,10 @@ mod tests {
             (: \"test\" String)
         "));
 
-        let get_type_op = GetTypeOp::new(space);
-        assert_eq_no_order!(get_type_op.execute(&mut vec![expr!("f" "42")]).unwrap(),
+        let get_type_op = GetTypeOp{};
+        assert_eq_no_order!(get_type_op.execute(&mut vec![expr!("f" "42"), expr!({space.clone()})]).unwrap(),
             vec![sym!("String")]);
-        assert_eq_no_order!(get_type_op.execute(&mut vec![expr!("f" "\"test\"")]).unwrap(),
+        assert_eq_no_order!(get_type_op.execute(&mut vec![expr!("f" "\"test\""), expr!({space.clone()})]).unwrap(),
             Vec::<Atom>::new());
     }
 
@@ -1516,5 +1606,103 @@ mod tests {
         assert_eq!(new_state, &Atom::gnd(StateAtom::new(expr!("C" "D"))));
         let result = GetStateOp{}.execute(&mut vec![new_state.clone()]);
         assert_eq!(result, Ok(vec![expr!("C" "D")]))
+    }
+
+    fn run_program(program: &str) -> Result<Vec<Vec<Atom>>, String> {
+        let metta = new_metta_rust();
+        metta.run(&mut SExprParser::new(program))
+    }
+
+    #[test]
+    fn metta_switch() {
+        let result = run_program("!(eval (switch (A $b) ( (($a B) (Return ($b $a))) ((B C) (Return (C B))) )))");
+        assert_eq!(result, Ok(vec![vec![expr!("B" "A")]]));
+        let result = run_program("!(eval (switch (A $b) ( ((B C) (Return (C B))) (($a B) (Return ($b $a))) )))");
+        assert_eq!(result, Ok(vec![vec![expr!("B" "A")]]));
+        let result = run_program("!(eval (switch (A $b) ( ((B C) (Return (C B))) ((D E) (Return (E B))) )))");
+        assert_eq!(result, Ok(vec![vec![]]));
+    }
+
+    #[test]
+    fn metta_reduce_chain() {
+        assert_eq!(run_program("
+            (= (foo $x) (bar $x))
+            (= (bar $x) (baz $x))
+            (= (baz $x) (Return $x))
+            !(eval (reduce (foo A) $x (Return (reduced $x))))
+        "), Ok(vec![vec![expr!("reduced" "A")]]));
+        assert_eq!(run_program("
+            !(eval (reduce (foo A) $x (Return (reduced $x))))
+        "), Ok(vec![vec![expr!("reduced" ("foo" "A"))]]));
+        assert_eq!(run_program("
+            (= (foo A) (Return (Error (foo A) \"Test error\")))
+            !(eval (reduce (foo A) $x (Return (reduced $x))))
+        "), Ok(vec![vec![expr!("Error" ("foo" "A") "\"Test error\"")]]));
+    }
+
+    #[test]
+    fn metta_reduce_reduce() {
+        assert_eq!(run_program("
+            (= (foo $x) (reduce (bar $x) $t $t))
+            (= (bar $x) (Return $x))
+            !(eval (reduce (foo A) $x $x))
+        "), Ok(vec![vec![expr!("A")]]));
+    }
+
+    #[test]
+    fn metta_type_cast() {
+        assert_eq!(run_program("(: a A) !(eval (type-cast a A &self))"), Ok(vec![vec![expr!("a")]]));
+        assert_eq!(run_program("(: a A) !(eval (type-cast a B &self))"), Ok(vec![vec![]]));
+        assert_eq!(run_program("(: a A) !(eval (type-cast a %Undefined% &self))"), Ok(vec![vec![expr!("a")]]));
+        assert_eq!(run_program("!(eval (type-cast a B &self))"), Ok(vec![vec![expr!("a")]]));
+        assert_eq!(run_program("!(eval (type-cast 42 Number &self))"), Ok(vec![vec![expr!({Number::Integer(42)})]]));
+        assert_eq!(run_program("!(eval (type-cast 42 %Undefined% &self))"), Ok(vec![vec![expr!({Number::Integer(42)})]]));
+    }
+
+    #[test]
+    fn metta_interpret_single_atom_as_atom() {
+        let result = run_program("!(eval (interpret A Atom &self))");
+        assert_eq!(result, Ok(vec![vec![expr!("A")]]));
+    }
+
+    #[test]
+    fn metta_interpret_single_atom_as_meta_type() {
+        assert_eq!(run_program("!(eval (interpret A Symbol &self))"), Ok(vec![vec![expr!("A")]]));
+        assert_eq!(run_program("!(eval (interpret $x Variable &self))"), Ok(vec![vec![expr!(x)]]));
+        assert_eq!(run_program("!(eval (interpret (A B) Expression &self))"), Ok(vec![vec![expr!("A" "B")]]));
+        assert_eq!(run_program("!(eval (interpret 42 Grounded &self))"), Ok(vec![vec![expr!({Number::Integer(42)})]]));
+    }
+
+    #[test]
+    fn metta_interpret_symbol_or_grounded_value_as_type() {
+        assert_eq!(run_program("(: a A) !(eval (interpret a A &self))"), Ok(vec![vec![expr!("a")]]));
+        assert_eq!(run_program("(: a A) !(eval (interpret a B &self))"), Ok(vec![vec![]]));
+        assert_eq!(run_program("!(eval (interpret 42 Number &self))"), Ok(vec![vec![expr!({Number::Integer(42)})]]));
+    }
+
+    #[test]
+    fn metta_interpret_variable_as_type() {
+        assert_eq!(run_program("!(eval (interpret $x %Undefined% &self))"), Ok(vec![vec![expr!(x)]]));
+        assert_eq!(run_program("!(eval (interpret $x SomeType &self))"), Ok(vec![vec![expr!(x)]]));
+    }
+
+    #[test]
+    fn metta_interpret_empty_expression_as_type() {
+        assert_eq!(run_program("!(eval (interpret () %Undefined% &self))"), Ok(vec![vec![expr!(())]]));
+        assert_eq!(run_program("!(eval (interpret () SomeType &self))"), Ok(vec![vec![expr!(())]]));
+    }
+
+    #[test]
+    fn metta_interpret_children() {
+        assert_eq!(run_program("!(eval (interpret-children () &self))"), Ok(vec![vec![expr!(())]]));
+        assert_eq!(run_program("!(eval (interpret-children (a) &self))"), Ok(vec![vec![expr!(("a"))]]));
+        assert_eq!(run_program("!(eval (interpret-children (a b) &self))"), Ok(vec![vec![expr!(("a" "b"))]]));
+    }
+
+    #[test]
+    fn metta_interpret_expression_as_type() {
+        assert_eq!(run_program("(= (foo $x) $x) !(eval (interpret (foo a) %Undefined% &self))"), Ok(vec![vec![expr!("a")]]));
+        assert_eq!(run_program("!(eval (interpret (foo a) %Undefined% &self))"), Ok(vec![vec![expr!("foo" "a")]]));
+        assert_eq!(run_program("!(eval (interpret () SomeType &self))"), Ok(vec![vec![expr!(())]]));
     }
 }
