@@ -402,11 +402,13 @@ impl Bindings {
     /// TODO: Rename to `merge` when clients have adopted new API
     pub fn merge_v2(self, b: &Bindings) -> BindingsSet {
         log::trace!("Bindings::merge: a: {}, b: {}", self, b);
-        let trace_self = match log::log_enabled!(log::Level::Trace) {
-            true => Some(self.clone()),
-            false => None
-        };
-
+        // FIXME: raise an issue on this
+        //let trace_self = match log::log_enabled!(log::Level::Trace) {
+            //true => Some(self.clone()),
+            //false => None
+        //};
+        let trace_self = Some(self.clone());
+        
         let results = b.id_by_var.iter().fold(smallvec::smallvec![(self, HashMap::new())],
             |results, (var, var_id)| -> smallvec::SmallVec<[(Bindings, HashMap<u32, VariableAtom>); 1]> {
                 let mut all_results = smallvec::smallvec![];
