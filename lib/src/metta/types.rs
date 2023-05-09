@@ -12,7 +12,7 @@
 //! and `Expression`. These types should not be assigned explicitly, but they
 //! can be used in type expressions and will be checked. For example one can
 //! define a function which accepts `Atom` as an argument: `(: bar (-> Atom A))`.
-//! When such expression is interpreted the argument is accepted without 
+//! When such expression is interpreted the argument is accepted without
 //! reduction (see [metta::interpreter] algorithm).
 //!
 //! When atom has no type assigned by user it has type `%Undefined%`. The value
@@ -107,7 +107,7 @@ pub fn is_func(typ: &Atom) -> bool {
 fn query_types(space: &dyn Space, atom: &Atom) -> Vec<Atom> {
     let var_x = VariableAtom::new("X").make_unique();
     let mut types = query_has_type(space, atom, &Atom::Variable(var_x.clone()));
-    let mut types = types.drain(0..).map(|mut bindings| { bindings.resolve_and_remove(&var_x).unwrap() }).collect();
+    let mut types = types.drain(0..).map(|mut bindings| { make_variables_unique(bindings.resolve_and_remove(&var_x).unwrap()) }).collect();
     add_super_types(space, &mut types, 0);
     types
 }
@@ -185,7 +185,7 @@ pub fn get_atom_types(space: &dyn Space, atom: &Atom) -> Vec<Atom> {
         // and `(: + (-> Num Num Num))`then type checker can find that
         // `{ $r = $t = $tt = Num }`.
         Atom::Variable(_) => vec![ATOM_TYPE_UNDEFINED],
-        Atom::Grounded(gnd) => vec![gnd.type_()],
+        Atom::Grounded(gnd) => vec![make_variables_unique(gnd.type_())],
         Atom::Symbol(_) => {
             let mut types = query_types(space, atom);
             if types.is_empty() {
@@ -462,7 +462,7 @@ mod tests {
     use super::*;
     use crate::metta::metta_space;
     use crate::metta::metta_atom as atom;
-    
+
     fn grammar_space() -> GroundingSpace {
         let mut space = GroundingSpace::new();
         space.add(expr!(":" "answer" ("->" "Sent" "Sent")));
@@ -962,7 +962,7 @@ mod tests {
         // TODO: it is incorrectly typed, but (atomR a) is an Expression and
         // check_type returns True
         assert!(check_type(&space, &atom("(exprF (atomR a))"), type_r));
-        
+
         assert!(check_type(&space, &atom("(gndF (gndR a))"), type_r));
         assert!(!check_type(&space, &atom("(gndF (atomR a))"), type_r));
         assert!(check_type(&space, &atom("(symF (symR a))"), type_r));
@@ -1035,7 +1035,7 @@ mod tests {
         // TODO: (exprF (atomR a)) is incorrectly typed, but (atomR a)
         // is an Expression and validate_atom returns True
         assert!(validate_atom(&space, &atom("(exprF (atomR a))")));
-        
+
         assert!(validate_atom(&space, &atom("(gndF (gndR a))")));
         assert!(!validate_atom(&space, &atom("(gndF (atomR a))")));
         assert!(validate_atom(&space, &atom("(symF (symR a))")));

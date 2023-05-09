@@ -290,7 +290,7 @@ impl Grounded for GetAtomsOp {
         let arg_error = || ExecError::from("get-atoms expects one argument: space");
         let space = args.get(0).ok_or_else(arg_error)?;
         let space = Atom::as_gnd::<Shared<GroundingSpace>>(space).ok_or("get-atoms expects a space as its argument")?;
-        Ok(space.borrow().iter().cloned().collect())
+        Ok(space.borrow().iter().map(|atom| make_variables_unique(atom.clone())).collect())
     }
 
     fn match_(&self, other: &Atom) -> MatchResultIter {
@@ -849,19 +849,23 @@ impl Grounded for LetOp {
         Atom::expr([ARROW_SYMBOL, ATOM_TYPE_ATOM, ATOM_TYPE_UNDEFINED, ATOM_TYPE_ATOM, ATOM_TYPE_ATOM])
     }
 
-    fn execute(&self, args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError> {
+    fn execute(&self, _args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError> {
+        panic!("This function is deprecated");
+    }
+
+    fn execute_bindings(&self, mut args: Vec<Atom>) -> Result<Vec<(Atom, Bindings)>, ExecError> {
         let arg_error = || ExecError::from("let expects three arguments: pattern, atom and template");
         let mut template = args.pop().ok_or_else(arg_error)?;
         let atom = args.pop().ok_or_else(arg_error)?;
         let mut pattern = args.pop().ok_or_else(arg_error)?;
 
-        let mut local_vars = HashMap::new();
-        introduce_local_vars(&mut pattern, &mut local_vars);
-        replace_vars(&mut template, &local_vars);
-        let local_vars: HashSet<VariableAtom> = local_vars.into_values().collect();
+        //let mut local_vars = HashMap::new();
+        //introduce_local_vars(&mut pattern, &mut local_vars);
+        //replace_vars(&mut template, &local_vars);
+        //let local_vars: HashSet<VariableAtom> = local_vars.into_values().collect();
 
         let bindings = matcher::match_atoms(&pattern, &atom);
-        let result = bindings.map(|b| apply_bindings_keeping_non_local_variables(&template, &b, &local_vars)).collect();
+        let result = bindings.map(|b| { (template.clone(), b) }).collect();
         log::debug!("LetOp::execute: pattern: {}, atom: {}, template: {}, result: {:?}", pattern, atom, template, result);
         Ok(result)
     }
@@ -885,13 +889,13 @@ fn replace_vars(atom: &mut Atom, vars: &HashMap<VariableAtom, VariableAtom>) {
     });
 }
 
-fn apply_bindings_keeping_non_local_variables(templ: &Atom, bindings: &Bindings, local: &HashSet<VariableAtom>) -> Atom {
+fn apply_bindings_prefer_local_variables(templ: &Atom, bindings: &Bindings, local: &HashSet<VariableAtom>) -> Atom {
     let mut result = templ.clone();
     for it in result.iter_mut() {
         match it {
             Atom::Variable(var) => {
                 match bindings.resolve(var) {
-                    Some(Atom::Variable(_)) if !local.contains(var) => {
+                    Some(Atom::Variable(_)) if local.contains(var) => {
                         /* ignore renaming non-local variable */
                     },
                     Some(atom) => { *it = atom; },
@@ -1194,6 +1198,11 @@ mod tests {
     use super::*;
     use crate::metta::runner::*;
     use crate::metta::types::validate_atom;
+
+    fn run_program(program: &str) -> Result<Vec<Vec<Atom>>, String> {
+        let metta = new_metta_rust();
+        metta.run(&mut SExprParser::new(program))
+    }
 
     #[test]
     fn match_op() {
@@ -1507,6 +1516,41 @@ mod tests {
     fn let_op_internal_variables_has_priority_in_template() {
         assert_eq!(LetOp{}.execute(&mut vec![expr!(x), expr!(x "A"), expr!(x)]),
             Ok(vec![expr!(x "A")]));
+    }
+
+    #[test]
+    fn let_op_keep_variables_equalities_issue290() {
+        assert_eq_metta_results!(run_program("!(let* (($f f) ($f $x)) $x)"), Ok(vec![vec![expr!("f")]]));
+        assert_eq_metta_results!(run_program("!(let* (($f $x) ($f f)) $x)"), Ok(vec![vec![expr!("f")]]));
+        assert_eq_metta_results!(run_program("!(let ($x $x) ($z $y) (let $y A ($z $y)))"), Ok(vec![vec![expr!("A" "A")]]));
+        assert_eq_metta_results!(run_program("!(let ($x $x) ($z $y) (let $z A ($z $y)))"), Ok(vec![vec![expr!("A" "A")]]));
+    }
+
+    #[test]
+    fn let_op_variables_visibility_pr262() {
+        let program = "
+            ;; Knowledge
+            (→ P Q)
+            (→ Q R)
+
+            ;; Rule
+            (= (rule (→ $p $q) (→ $q $r)) (→ $p $r))
+
+            ;; Query (does not work as expected)
+            (= (query $kb)
+               (let* (($pq (→ $p $q))
+                      ($qr (→ $q $r)))
+                 (match $kb
+                   ;; Premises
+                   (, $pq $qr)
+                   ;; Conclusion
+                   (rule $pq $qr))))
+
+            ;; Call
+            !(query &self)
+            ;; [(→ P R)]
+        ";
+        assert_eq_metta_results!(run_program(program), Ok(vec![vec![expr!("→" "P" "R")]]));
     }
 
     #[test]

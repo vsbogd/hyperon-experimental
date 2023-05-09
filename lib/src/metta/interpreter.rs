@@ -93,7 +93,7 @@ impl InterpretedAtom {
     fn bindings(&self) -> &Bindings {
         &self.1
     }
-    
+
     /// Convert the instance into tuple of [Atom] and [Bindings]
     pub fn into_tuple(self) -> (Atom, Bindings) {
         (self.0, self.1)
@@ -259,7 +259,7 @@ impl<'a, T: SpaceRef<'a>> Clone for InterpreterContextRef<'a, T> {
 }
 
 fn is_grounded_op(expr: &ExpressionAtom) -> bool {
-    match expr.children().get(0) { 
+    match expr.children().get(0) {
         Some(Atom::Grounded(op)) if is_func(&op.type_())
             || op.type_() == ATOM_TYPE_UNDEFINED => true,
         _ => false,
@@ -521,14 +521,19 @@ fn execute_op<'a, T: SpaceRef<'a>>(context: InterpreterContextRef<'a, T>, input:
     log::debug!("execute_op: {}", input);
     match input {
         InterpretedAtom(Atom::Expression(ref expr), ref bindings) => {
-            let mut expr = expr.clone();
-            let op = expr.children().get(0).cloned();
-            if let Some(Atom::Grounded(op)) = op {
-                let mut args = expr.children_mut().drain(1..).collect();
-                match op.execute(&mut args) {
+            let mut children = expr.clone().into_children();
+            let op = children.remove(0);
+            if let Atom::Grounded(op) = op {
+                let args = children;
+                match op.execute(args) {
                     Ok(mut vec) => {
                         let results: Vec<InterpretedAtom> = vec.drain(0..)
-                            .map(|atom| InterpretedAtom(atom, bindings.clone()))
+                            .flat_map(|(atom, b)| {
+                                b.merge_v2(bindings).into_iter()
+                                    .map(move |bindings| {
+                                        InterpretedAtom(apply_bindings_to_atom(&atom, &bindings), bindings)
+                                    })
+                            })
                             .collect();
                         if results.is_empty() {
                             StepResult::ret(results)
@@ -564,7 +569,7 @@ fn match_op<'a, T: SpaceRef<'a>>(context: InterpreterContextRef<'a, T>, input: I
     let results: Vec<InterpretedAtom> = query_bindings
         .drain(0..)
         .map(|mut query_binding| {
-            let result = query_binding.resolve_and_remove(&var_x).unwrap(); 
+            let result = query_binding.resolve_and_remove(&var_x).unwrap();
             let result = apply_bindings_to_atom(&result, &query_binding);
             // TODO: sometimes we apply bindings twice: first time here,
             // second time when inserting matched argument into nesting
@@ -608,7 +613,7 @@ use std::collections::VecDeque;
 
 /// Plan which interprets in parallel alternatives of the expression.
 /// Each successful result is appended to the overall result of the plan.
-/// If no alternatives returned successful result the plan returns error. 
+/// If no alternatives returned successful result the plan returns error.
 pub struct AlternativeInterpretationsPlan<'a, T> {
     atom: Atom,
     plans: VecDeque<Box<dyn Plan<'a, (), Vec<T>, InterpreterError> + 'a>>,
@@ -617,7 +622,7 @@ pub struct AlternativeInterpretationsPlan<'a, T> {
 }
 
 impl<'a, T> AlternativeInterpretationsPlan<'a, T> {
-    /// Create new instance of [AlternativeInterpretationsPlan]. 
+    /// Create new instance of [AlternativeInterpretationsPlan].
     ///
     /// # Arguments
     /// `atom` - atom to be printed as root of the alternative interpretations
@@ -860,7 +865,7 @@ mod tests {
         let space = GroundingSpace::new();
         let expr = Atom::expr([Atom::gnd(ThrowError()), Atom::value("Runtime test error")]);
 
-        assert_eq!(interpret(&space, &expr), 
+        assert_eq!(interpret(&space, &expr),
             Ok(vec![Atom::expr([ERROR_SYMBOL, expr, Atom::sym("Runtime test error")])]));
     }
 

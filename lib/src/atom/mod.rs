@@ -119,6 +119,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use crate::common::collections::ImmutableString;
+use matcher::Bindings;
 
 // Symbol atom
 
@@ -352,7 +353,7 @@ pub trait GroundedAtom : mopa::Any + Debug + Display {
 
     // TODO: type_() should return Vec<Atom> because of type non-determinism
     fn type_(&self) -> Atom;
-    fn execute(&self, args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError>;
+    fn execute(&self, args: Vec<Atom>) -> Result<Vec<(Atom, Bindings)>, ExecError>;
     fn match_(&self, other: &Atom) -> matcher::MatchResultIter;
 }
 
@@ -417,6 +418,16 @@ pub trait Grounded : Display {
     /// results as `Vec<Atom>` or [ExecError].
     fn execute(&self, args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError>;
 
+    /// Executes grounded function on passed `args` and returns list of
+    /// results with variable bindings as `Vec<(Atom, Bindings)>` or [ExecError].
+    /// Default implementation falls back to the [Grounded::execute] call and
+    /// adds the empty [Bindings] to each result.
+    fn execute_bindings(&self, mut args: Vec<Atom>) -> Result<Vec<(Atom, Bindings)>, ExecError> {
+        self.execute(&mut args).map(|atoms| atoms.into_iter()
+            .map(|atom| (atom, Bindings::new()))
+            .collect())
+    }
+
     /// Implements custom matching logic of the grounded atom.
     /// Gets `other` atom as input, returns the iterator of the
     /// [matcher::Bindings] for the variables of the `other` atom.
@@ -445,7 +456,7 @@ pub fn match_by_equality<T: 'static + PartialEq>(this: &T, other: &Atom) -> matc
 /// Returns [ExecError::NoReduce] which means this atom should not be reduced
 /// further. This is a default implementation of `execute()` for the
 /// grounded types wrapped automatically.
-pub fn execute_not_executable<T: Debug>(_this: &T) -> Result<Vec<Atom>, ExecError> {
+pub fn execute_not_executable<T: Debug, R>(_this: &T) -> Result<Vec<R>, ExecError> {
     Err(ExecError::NoReduce)
 }
 
@@ -484,7 +495,7 @@ impl<T: AutoGroundedType> GroundedAtom for AutoGroundedAtom<T> {
         rust_type_atom::<T>()
     }
 
-    fn execute(&self, _args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError> {
+    fn execute(&self, _args: Vec<Atom>) -> Result<Vec<(Atom, Bindings)>, ExecError> {
         execute_not_executable(self)
     }
 
@@ -534,8 +545,8 @@ impl<T: CustomGroundedType> GroundedAtom for CustomGroundedAtom<T> {
         Grounded::type_(&self.0)
     }
 
-    fn execute(&self, args: &mut Vec<Atom>) -> Result<Vec<Atom>, ExecError> {
-        Grounded::execute(&self.0, args)
+    fn execute(&self, args: Vec<Atom>) -> Result<Vec<(Atom, Bindings)>, ExecError> {
+        Grounded::execute_bindings(&self.0, args)
     }
 
     fn match_(&self, other: &Atom) -> matcher::MatchResultIter {
@@ -1050,8 +1061,8 @@ mod test {
     fn test_custom_execution() {
         let mul3 = Atom::gnd(TestMulX(3));
         if let Atom::Grounded(gnd) = mul3 {
-            let res = gnd.execute(&mut vec![Atom::value(14)]);
-            assert_eq!(res, Ok(vec![Atom::value(42)]));
+            let res = gnd.execute(vec![Atom::value(14)]);
+            assert_eq!(res, Ok(vec![(Atom::value(42), Bindings::new())]));
         } else {
             assert!(false, "GroundedAtom is expected");
         }
