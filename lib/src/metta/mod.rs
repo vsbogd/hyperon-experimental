@@ -37,6 +37,7 @@ pub const VOID_SYMBOL : Atom = sym!("Void");
 
 pub const EVAL_SYMBOL : Atom = sym!("eval");
 pub const CHAIN_SYMBOL : Atom = sym!("chain");
+pub const CHAIN_STAR_SYMBOL : Atom = sym!("chain*");
 pub const UNIFY_SYMBOL : Atom = sym!("unify");
 pub const DECONS_SYMBOL : Atom = sym!("decons");
 pub const CONS_SYMBOL : Atom = sym!("cons");

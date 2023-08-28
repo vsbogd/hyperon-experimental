@@ -164,11 +164,21 @@ pub fn interpret<T: Space>(space: T, expr: &Atom) -> Result<Vec<Atom>, String> {
     state.into_result()
 }
 
+fn is_chain_op(atom: &Atom) -> bool {
+    let expr = atom_as_slice(&atom);
+    match expr {
+        Some([op, ..]) => *op == CHAIN_SYMBOL
+            || *op == CHAIN_STAR_SYMBOL,
+        _ => false,
+    }
+}
+
 fn is_embedded_op(atom: &Atom) -> bool {
     let expr = atom_as_slice(&atom);
     match expr {
         Some([op, ..]) => *op == EVAL_SYMBOL
             || *op == CHAIN_SYMBOL
+            || *op == CHAIN_STAR_SYMBOL
             || *op == UNIFY_SYMBOL
             || *op == CONS_SYMBOL
             || *op == DECONS_SYMBOL,
@@ -206,12 +216,27 @@ fn interpret_atom_root<'a, T: SpaceRef<'a>>(space: T, interpreted_atom: Interpre
                 [_nested, Atom::Variable(_var), _templ] => {
                     match atom_into_array(atom) {
                         Some([_, nested, Atom::Variable(var), templ]) =>
-                            chain(space, bindings, nested, var, templ),
+                            chain(space, bindings, nested, var, templ, None),
                         _ => panic!("Unexpected state"),
                     }
                 },
                 _ => {
                     let error: String = format!("expected: ({} <nested> (: <var> Variable) <templ>), found: {}", CHAIN_SYMBOL, atom);
+                    vec![InterpretedAtom(error_atom(atom, error), bindings)]
+                },
+            }
+        },
+        Some([op, args @ ..]) if *op == CHAIN_STAR_SYMBOL => {
+            match args {
+                [_nested, Atom::Variable(_var), _templ, Atom::Expression(_tail)] => {
+                    match atom_into_array(atom) {
+                        Some([_, nested, Atom::Variable(var), templ, tail]) =>
+                            chain(space, bindings, nested, var, templ, Some(tail)),
+                        _ => panic!("Unexpected state"),
+                    }
+                },
+                _ => {
+                    let error: String = format!("expected: ({} <nested> (: <var> Variable) <templ> (: <tail> Expression)), found: {}", CHAIN_STAR_SYMBOL, atom);
                     vec![InterpretedAtom(error_atom(atom, error), bindings)]
                 },
             }
@@ -336,23 +361,67 @@ fn query<'a, T: SpaceRef<'a>>(space: T, atom: Atom, bindings: Bindings) -> Vec<I
     }
 }
 
-fn chain<'a, T: SpaceRef<'a>>(space: T, bindings: Bindings, nested: Atom, var: VariableAtom, templ: Atom) -> Vec<InterpretedAtom> {
+fn chain<'a, T: SpaceRef<'a>>(space: T, bindings: Bindings, nested: Atom, var: VariableAtom, templ: Atom, tail: Option<Atom>) -> Vec<InterpretedAtom> {
     if is_embedded_op(&nested) {
         let mut result = interpret_atom_root(space, InterpretedAtom(nested, bindings), false);
         if result.len() == 1 {
             let InterpretedAtom(r, b) = result.pop().unwrap();
-            vec![InterpretedAtom(Atom::expr([CHAIN_SYMBOL, r, Atom::Variable(var), templ]), b)]
+            vec![InterpretedAtom(merge_chain(r, Atom::Variable(var), templ, tail), b)]
         } else {
             result.into_iter()
                 .map(|InterpretedAtom(r, b)| {
-                    InterpretedAtom(Atom::expr([CHAIN_SYMBOL, r, Atom::Variable(var.clone()), templ.clone()]), b)
+                    let var = Atom::Variable(var.clone());
+                    let templ = templ.clone();
+                    InterpretedAtom(merge_chain(r, var, templ, tail.clone()), b)
                 })
             .collect()
         }
     } else {
         let b = Bindings::new().add_var_binding_v2(var, nested).unwrap();
         let result = apply_bindings_to_atom(&templ, &b);
-        vec![InterpretedAtom(result, bindings)]
+        if let Some(Atom::Expression(mut tail)) = tail {
+            if tail.children().len() == 0 {
+                vec![InterpretedAtom(result, bindings)]
+            } else {
+                let mut pair = tail.children_mut().drain(0..2);
+                let var = pair.next().unwrap();
+                let templ = pair.next().unwrap();
+                drop(pair);
+                vec![InterpretedAtom(merge_chain(result, var, templ, Some(Atom::Expression(tail))), bindings)]
+            }
+        } else {
+            vec![InterpretedAtom(result, bindings)]
+        }
+    }
+}
+
+fn merge_chain(nested: Atom, var: Atom, templ: Atom, tail: Option<Atom>) -> Atom {
+    if is_chain_op(&nested) {
+        let nested = ExpressionAtom::try_from(nested).unwrap().into_children();
+        let mut children = Vec::new();
+        children.push(CHAIN_STAR_SYMBOL);
+        let mut nested_args = nested.into_iter().skip(1);
+        children.push(nested_args.next().unwrap()); // atom
+        children.push(nested_args.next().unwrap()); // var
+        children.push(nested_args.next().unwrap()); // templ
+        let nested_tail = nested_args.next();   // tail in chain* case
+        let mut new_tail = Vec::new();
+        new_tail.push(var);
+        new_tail.push(templ);
+        if let Some(Atom::Expression(nested_tail)) = nested_tail {
+            new_tail.extend(nested_tail.into_children().into_iter());
+        }
+        if let Some(Atom::Expression(tail)) = tail {
+            new_tail.extend(tail.into_children().into_iter());
+        }
+        children.push(Atom::expr(new_tail));
+        Atom::expr(children)
+    } else {
+        if let Some(tail) = tail {
+            Atom::expr([CHAIN_STAR_SYMBOL, nested, var, templ, tail])
+        } else {
+            Atom::expr([CHAIN_SYMBOL, nested, var, templ])
+        }
     }
 }
 
@@ -766,5 +835,21 @@ mod tests {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(f, "return-nothing")
         }
+    }
+
+    #[test]
+    fn chain_deep_recursion_test() {
+        fn chain_atom(size: isize) -> Atom {
+            let mut atom = Atom::expr([CHAIN_SYMBOL, Atom::sym("A"), Atom::var("x"), Atom::var("x")]);
+            for _i in (1..size).step_by(1) {
+                atom = Atom::expr([CHAIN_SYMBOL, atom, Atom::var("x"), Atom::var("x")])
+            }
+            atom
+        }
+        let atom = chain_atom(100);
+        let expected = Ok(vec![expr!("A")]);
+        let space = GroundingSpace::new();
+        let res = interpret(space, &atom);
+        assert_eq!(res, expected);
     }
 }

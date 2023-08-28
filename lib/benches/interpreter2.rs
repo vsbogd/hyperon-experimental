@@ -18,6 +18,28 @@ fn chain_atom(size: isize) -> Atom {
 }
 
 #[bench]
+fn chain_x10(bencher: &mut Bencher) {
+    let atom = chain_atom(10);
+    let expected = Ok(vec![expr!("A")]);
+    bencher.iter(|| {
+        let space = GroundingSpace::new();
+        let res = interpret(space, &atom);
+        assert_eq!(res, expected);
+    })
+}
+
+#[bench]
+fn chain_x50(bencher: &mut Bencher) {
+    let atom = chain_atom(50);
+    let expected = Ok(vec![expr!("A")]);
+    bencher.iter(|| {
+        let space = GroundingSpace::new();
+        let res = interpret(space, &atom);
+        assert_eq!(res, expected);
+    })
+}
+
+#[bench]
 fn chain_x100(bencher: &mut Bencher) {
     let atom = chain_atom(100);
     let expected = Ok(vec![expr!("A")]);
