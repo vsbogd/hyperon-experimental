@@ -10,8 +10,8 @@ pub mod multitrie;
 mod flex_ref;
 pub use flex_ref::FlexRef;
 
-mod arithmetics;
-pub use arithmetics::*;
+//mod arithmetics;
+//pub use arithmetics::*;
 
 use crate::*;
 use crate::metta::text::{Tokenizer, SExprParser};
