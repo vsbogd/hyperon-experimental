@@ -188,7 +188,7 @@ impl EnvBuilder {
         let mut env = self.env;
 
         //Init the logger.  This will have no effect if the logger has already been initialized
-        let _ = env_logger::builder().is_test(env.is_test).try_init();
+        let _ = env_logger::builder().format_timestamp_millis().is_test(env.is_test).try_init();
 
         //Construct the platform-specific config dir location, if an explicit location wasn't provided
         if !self.no_cfg_dir {
