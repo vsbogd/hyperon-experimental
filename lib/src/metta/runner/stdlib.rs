@@ -1423,6 +1423,10 @@ mod non_minimal_only_stdlib {
             |token| { Atom::gnd(Number::from_float_str(token)) });
         tref.register_token(regex(r"True|False"),
             |token| { Atom::gnd(Bool::from_str(token)) });
+        tref.register_token(regex(r#""[^"]+""#), |token| {
+            let len = token.len() - 1;
+            Atom::value(String::from(&token[1..len]))
+        });
         let sum_op = Atom::gnd(SumOp{});
         tref.register_token(regex(r"\+"), move |_| { sum_op.clone() });
         let sub_op = Atom::gnd(SubOp{});
