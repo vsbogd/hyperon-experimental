@@ -565,7 +565,7 @@ impl Grounded for PrintlnOp {
     fn execute(&self, args: &[Atom]) -> Result<Vec<Atom>, ExecError> {
         let arg_error = || ExecError::from("println! expects single atom as an argument");
         let atom = args.get(0).ok_or_else(arg_error)?;
-        println!("{}", atom);
+        println!("{}", &Into::<Cow<'_, str>>::into(atom));
         unit_result()
     }
 
@@ -573,6 +573,22 @@ impl Grounded for PrintlnOp {
         match_by_equality(self, other)
     }
 }
+
+use std::borrow::Cow;
+impl<'a> Into<Cow<'a, str>> for &'a Atom {
+    fn into(self) -> Cow<'a, str> {
+        match self {
+            Atom::Grounded(_) => {
+                match self.as_gnd::<String>() {
+                    Some(s) => Cow::Borrowed(s.as_str()),
+                    None => Cow::Owned(self.to_string().into()),
+                }
+            },
+            _ => Cow::Owned(self.to_string().into()),
+        }
+    }
+}
+
 
 /// Implement trace! built-in.
 ///
