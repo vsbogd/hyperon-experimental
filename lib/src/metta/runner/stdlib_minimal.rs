@@ -359,6 +359,8 @@ pub fn register_common_tokens(tref: &mut Tokenizer, _tokenizer: Shared<Tokenizer
 
     let get_type_op = Atom::gnd(GetTypeOp::new(space.clone()));
     tref.register_token(regex(r"get-type"), move |_| { get_type_op.clone() });
+    let get_type_space_op = Atom::gnd(stdlib::GetTypeSpaceOp{});
+    tref.register_token(regex(r"get-type-space"), move |_| { get_type_space_op.clone() });
     let get_meta_type_op = Atom::gnd(stdlib::GetMetaTypeOp{});
     tref.register_token(regex(r"get-metatype"), move |_| { get_meta_type_op.clone() });
     let is_equivalent = Atom::gnd(IfEqualOp{});
@@ -413,6 +415,8 @@ pub fn register_runner_tokens(tref: &mut Tokenizer, tokenizer: Shared<Tokenizer>
     tref.register_token(regex(r"trace!"), move |_| { trace_op.clone() });
     let println_op = Atom::gnd(stdlib::PrintlnOp{});
     tref.register_token(regex(r"println!"), move |_| { println_op.clone() });
+    let format_args_op = Atom::gnd(stdlib::FormatArgsOp{});
+    tref.register_token(regex(r"format-args"), move |_| { format_args_op.clone() });
     let sealed_op = Atom::gnd(stdlib::SealedOp{});
     tref.register_token(regex(r"sealed"), move |_| { sealed_op.clone() });
     // &self should be updated

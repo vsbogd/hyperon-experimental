@@ -950,7 +950,6 @@ impl Grounded for MatchOp {
     }
 }
 
-
 /// The internal `non_minimal_only_stdlib` module contains code that is never used by the minimal stdlib
 #[cfg(not(feature = "minimal"))]
 mod non_minimal_only_stdlib {

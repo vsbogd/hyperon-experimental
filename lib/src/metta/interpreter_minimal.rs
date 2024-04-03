@@ -178,6 +178,7 @@ pub struct InterpreterState<'a, T: SpaceRef<'a>> {
     finished: Vec<Atom>,
     context: InterpreterContext<'a, T>,
     vars: HashSet<VariableAtom>,
+    id: i64,
 }
 
 fn atom_as_slice(atom: &Atom) -> Option<&[Atom]> {
@@ -202,6 +203,7 @@ impl<'a, T: SpaceRef<'a>> InterpreterState<'a, T> {
             finished: results,
             context: InterpreterContext::new(space),
             vars: HashSet::new(),
+            id: 0,
         }
     }
 
@@ -255,6 +257,17 @@ pub fn interpret_init<'a, T: Space + 'a>(space: T, expr: &Atom) -> InterpreterSt
         finished: vec![],
         context,
         vars: expr.iter().filter_type::<&VariableAtom>().cloned().collect(),
+        id: 0,
+    }
+}
+
+/// Tests whether or not an atom is an error expression
+pub fn atom_is_error(atom: &Atom) -> bool {
+    match atom {
+        Atom::Expression(expr) => {
+            expr.children().len() > 0 && expr.children()[0] == ERROR_SYMBOL
+        },
+        _ => false,
     }
 }
 
@@ -266,9 +279,20 @@ pub fn interpret_init<'a, T: Space + 'a>(space: T, expr: &Atom) -> InterpreterSt
 /// # Arguments
 /// * `step` - [StepResult::Execute] result from the previous step.
 pub fn interpret_step<'a, T: Space + 'a>(mut state: InterpreterState<'a, T>) -> InterpreterState<'a, T> {
+    if state.plan.len() > 0 {
+        let stack = &state.plan.last().unwrap().0;
+        let finished = if stack.finished { "finished" } else { "" };
+        //println!("{} {} {}", state.plan.len() - 1, finished, stack.atom);
+    }
+    let from_id = state.id;
     let interpreted_atom = state.pop().unwrap();
     log::debug!("interpret_step:\n{}", interpreted_atom);
     for result in interpret_root_atom(&state.context, interpreted_atom) {
+        state.id = state.id + 1;
+        let to_id = state.id;
+        let atom = result.0.atom.to_string().replace("\"", "");
+        println!(r#"n{} [label="{}"]"#, to_id, atom);
+        println!(r#"n{} -> n{}"#, from_id, to_id);
         state.push(result);
     }
     state
