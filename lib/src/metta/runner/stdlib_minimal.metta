@@ -35,17 +35,20 @@
     (chain (decons-atom $atom) $list
       (unify $list ($head $tail) (return $then) (return $else)) )))))
 
+(: is-error (-> Atom Bool))
+(= (is-error $atom)
+  (function
+    (chain (eval (get-metatype $atom)) $meta
+    (eval (if-equal $meta Expression
+      (eval (if-decons-expr $atom $head $tail
+        (eval (if-equal $head Error (return True) (return False)))
+        (return False) ))
+      (return False) )))))
+
 (: if-error (-> Atom Atom Atom Atom))
 (= (if-error $atom $then $else)
-  (function (chain (eval (get-metatype $atom)) $meta
-    (eval (if-equal $meta Expression
-      (eval (if-equal $atom ()
-        (return $else)
-        (chain (decons-atom $atom) $list
-          (unify $list ($head $tail)
-            (eval (if-equal $head Error (return $then) (return $else)))
-            (return $else) ))))
-      (return $else) )))))
+  (function (chain (eval (is-error $atom)) $cond
+    (eval (if $cond (return $then) (return $else))) )))
 
 (: return-on-error (-> Atom Atom Atom))
 (= (return-on-error $atom $then)
@@ -153,26 +156,33 @@
           (chain (eval (foldl-atom $tail $head-folded $a $b $op)) $res (return $res)) )))
     (return $init) ))))
 
-(: separate-errors (-> Expression Expression Expression))
-(= (separate-errors $succ-err $res)
-  (function (unify $succ-err ($suc $err)
-    (unify $res ($a $_b)
-      (eval (if-error $a
-        (chain (cons-atom $res $err) $err' (return ($suc $err')))
-        (chain (cons-atom $res $suc) $suc' (return ($suc' $err))) ))
-      (return $succ-err))
-    (return $succ-err) )))
+(: split-atom (-> (-> Atom Bool) Expression (Expression Expression)))
+(= (split-atom $criteria $expr)
+  (function
+    (chain (eval (foldl-atom $expr (() ()) $val $next
+      (eval (split-atom-check-criteria $criteria $val $next)))) $res (return $res))))
+
+(: split-atom-check-criteria (-> (-> Atom Bool) (Expression Expression) Atom (Expression Expression)))
+(= (split-atom-check-criteria $criteria ($true $false) $atom)
+  (function
+    (chain (eval ($criteria $atom)) $cond
+    (eval (if $cond
+      (chain (cons-atom $atom $true) $true' (return ($true' $false)))
+      (chain (cons-atom $atom $false) $false' (return ($true $false'))) )))))
+
+(: is-error-result (-> Expression Bool))
+(= (is-error-result ($atom $bindings))
+  (function (chain (eval (is-error $atom)) $res (return $res))) )
 
 (= (check-alternatives $atom)
   (function
     (chain (collapse-bind $atom) $collapsed
       ;(chain (eval (print-alternatives! $atom $collapsed)) $_
-      (chain (eval (foldl-atom $collapsed (() ()) $succ-err $res
-        (eval (separate-errors $succ-err $res)))) $separated
-        (unify $separated ($success $error)
+      (chain (eval (split-atom is-error-result $collapsed)) $error-succ
+        (unify $error-succ ($error $success)
           (chain (eval (if-equal $success () $error $success)) $filtered
             (chain (superpose-bind $filtered) $ret (return $ret)) )
-          (return (Error (check-alternatives $atom) "list of results was not filtered correctly")) )))))
+          (return (Error (check-alternatives $atom) "List of results was not filtered correctly")) )))))
 
 (= (interpret $atom $type $space)
   (function (chain (eval (get-metatype $atom)) $meta
