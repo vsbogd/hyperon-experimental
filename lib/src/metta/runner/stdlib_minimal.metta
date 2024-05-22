@@ -202,25 +202,120 @@
 
 (= (interpret-expression $atom $type $space)
   (function (eval (if-decons-expr $atom $op $args
-    (chain (eval (get-type $op $space)) $op-type
-      (chain (eval (is-function $op-type)) $is-func
-        (unify $is-func True
-          (chain (eval (interpret-func $atom $op-type $type $space)) $reduced-atom
-            (chain (eval (metta-call $reduced-atom $type $space)) $ret (return $ret)) )
-          (chain (eval (interpret-tuple $atom $space)) $reduced-atom
-            (chain (eval (metta-call $reduced-atom $type $space)) $ret (return $ret)) ))))
+    (chain (collapse-bind (eval (get-type $op $space))) $op-types
+      (chain (eval (split-atom is-collapsed-function-type $op-types)) $func-non-func
+        (chain (eval (interpret-expression-superpose $func-non-func $atom $op $args $type $space)) $evaluated
+          ; FIXME: check if $evaluated is Empty
+          (chain (eval (metta-call $evaluated $type $space)) $ret
+            (return $ret) ))))
     (chain (eval (type-cast $atom $type $space)) $ret (return $ret)) ))))
 
-(= (interpret-func $expr $type $ret-type $space)
-  (function (eval (if-decons-expr $expr $op $args
+(= (is-collapsed-function-type $collapsed)
+  (function
+    (unify ($type $bindings) $collapsed
+      (chain (eval (is-function $type)) $is-func (return $is-func))
+      (return (Error (is-collapsed-function-type $collapsed) "Collapsed get-type results are expected as an argument"))
+    )))
+
+(= (interpret-expression-superpose ($func-op-types $non-func-types) $atom $op $args $type $space)
+  (function
+    (unify () $non-func-types
+      (return Empty)
+      (chain (eval (interpret-tuple $atom $space)) $non-func-result (return $non-func-result))
+    )))
+
+(= (interpret-expression-superpose ($func-op-types $non-func-types) $atom $op $args $type $space)
+  (function
+    (chain (eval (check-op-types-applicability $atom $func-op-types $args $type $space)) $applicable-errors
+      (unify ($errors $applicable-types) $applicable-errors
+        (unify () $applicable-types
+          (chain (superpose-bind $errors) $error (return $error))
+          (chain (decons-atom $applicable-types) $pair
+            (unify ($head $_) $pair
+              (chain (superpose-bind ($head)) $func-type
+                (chain (eval (interpret-func $atom $op $args $func-type $type $space)) $func-result
+                  (return $func-result) ))
+              (return (Error (interpret-expression-superpose ($func-op-types $non-func-types) $atom $op $args $type $space) "Cannot deconstruct $applicable-types"))
+            )
+          )
+        )
+        (return (Error (interpret-expression-superpose ($func-op-types $non-func-types) $atom $op $args $type $space) "Cannot deconstruct check-op-types-applicability results"))
+      ))))
+
+(= (check-op-types-applicability $atom $op-types $args $ret-type $space)
+  (function
+    (chain (eval (foldl-atom $op-types () $results $op-type
+      (eval (add-function-applicability $results $atom $op-type $args $ret-type $space)) )) $applicable
+    (chain (eval (dedup-atom $applicable)) $dedup
+    (chain (eval (split-atom is-error-collapsed $dedup)) $result
+      (return $result) )))))
+
+(= (is-error-collapsed ($atom $bindings))
+   (function (chain (eval (is-error $atom)) $res (return $res))) )
+
+(= (add-function-applicability $list $atom $op-type-collapsed $args $ret-type $space)
+   (function
+     (chain (superpose-bind ($op-type-collapsed)) $op-type
+     (chain (eval (check-function-applicability $atom $op-type $args $ret-type $space)) $op-type-results
+     (chain (eval (merge-atoms $list $op-type-results)) $res
+       (return $res) )))))
+
+(= (merge-atoms $list $to_append)
+   (function
+     (unify () $to_append
+       (return $list)
+       (chain (decons-atom $to_append) $pair
+       (unify $pair ($head $tail)
+         (chain (cons-atom $head $list) $appended
+           (chain (eval (merge-atoms $appended $tail)) $result
+             (return $result) ))
+         (return (Error (merge-atoms $list $to_append) "Unexpected state")) )))))
+
+(= (check-function-applicability $atom $op-type $args $ret-type $space)
+  (function
+    (chain (decons-atom $op-type) $arr-types
+      (unify (-> $arg-types) $arr-types
+        (chain (collapse-bind (eval (check-function-applicability-recursive $op-type $atom $arg-types $args $ret-type $space))) $applicable
+          (chain (eval (dedup-atom $applicable)) $dedup
+          (chain (eval (split-atom is-error-collapsed $dedup)) $succ-error
+          (unify ($err $succ) $succ-error
+            (unify () $succ
+              (return $err)
+              (return $succ))
+            (return (Error (check-function-applicability $atom $op-type $args $ret-type $space) "Pair of lists is expected")) ))))
+        (return (Error (check-function-applicability $atom $op-type $args $ret-type $space) "$op-type should contain -> at the first position")) ))))
+
+(= (check-function-applicability-recursive $op-type $atom $arg-types $args $ret-type $space)
+  (function 
+    (unify ($op-ret-type) $arg-types
+      (eval (match-types $op-ret-type $ret-type
+        (unify () $args
+          (return $op-type)
+          (return (Error $atom IncorrectNumberOfArguments)) )
+        (return (Error $atom BadType)) ))
+      (chain (decons-atom $args) $arg-pair
+        (chain (decons-atom $arg-types) $type-pair
+          (unify ($arg $tail-args) $arg-pair
+            (unify ($formal-arg-type $tail-types) $type-pair
+              (chain (eval (get-type $arg $space)) $actual-arg-type
+                (chain (eval (match-types $actual-arg-type $formal-arg-type True False)) $compatible
+                  (eval (if $compatible
+                    (chain (eval (check-function-applicability-recursive $op-type $atom $tail-types $tail-args $ret-type $space)) $result
+                      (return $result) )
+                    (return (Error $arg BadType)) ))))
+              (return (Error (check-function-applicability-recursive $op-type $atom $arg-types $args $ret-type $space) "$arg-types should be an expression of types")) )
+            (return (Error $atom IncorrectNumberOfArguments))
+          ))))))
+
+(= (interpret-func $expr $op $args $type $ret-type $space)
+  (function
     (chain (eval (interpret $op $type $space)) $reduced-op
       (eval (return-on-error $reduced-op
         (eval (if-decons-expr $type $arrow $arg-types
           (chain (eval (interpret-args $expr $args $arg-types $ret-type $space)) $reduced-args
             (eval (return-on-error $reduced-args
               (chain (cons-atom $reduced-op $reduced-args) $r (return $r)))))
-          (return (Error $type "Function type expected")) )))))
-    (return (Error $expr "Non-empty expression atom is expected")) ))))
+          (return (Error $type "Function type expected")) )))))))
 
 (= (interpret-args $atom $args $arg-types $ret-type $space)
   (function (unify $args ()
@@ -242,7 +337,7 @@
             (eval (return-on-error $reduced-head
               (chain (eval (interpret-args-tail $atom $reduced-head $tail $tail-types $ret-type $space)) $ret (return $ret)) )))))
         (return (Error $atom BadType)) ))
-      (return (Error (interpret-atom $atom $args $arg-types $space) "Non-empty expression atom is expected")) )))))
+      (return (Error (interpret-args $atom $args $arg-types $ret-type $space) "Non-empty $args expression is expected")) )))))
 
 (= (interpret-args-tail $atom $head $args-tail $args-tail-types $ret-type $space)
   (function (chain (eval (interpret-args $atom $args-tail $args-tail-types $ret-type $space)) $reduced-tail

@@ -401,6 +401,44 @@ impl CustomExecute for CaseOp {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct DedupAtomOp {}
+
+grounded_op!(DedupAtomOp, "dedup-atom");
+
+use crate::common::collections::{ListMap, ListMapEntry};
+
+impl Grounded for DedupAtomOp {
+    fn type_(&self) -> Atom {
+        Atom::expr([ARROW_SYMBOL, ATOM_TYPE_EXPRESSION, ATOM_TYPE_EXPRESSION])
+    }
+
+    fn as_execute(&self) -> Option<&dyn CustomExecute> {
+        Some(self)
+    }
+}
+
+impl CustomExecute for DedupAtomOp {
+    fn execute(&self, args: &[Atom]) -> Result<Vec<Atom>, ExecError> {
+        let arg_error = || ExecError::from("print-alternatives! expects format string as a first argument and expression as a second argument");
+        let args = TryInto::<&ExpressionAtom>::try_into(args.get(0).ok_or_else(arg_error)?)?;
+
+        let mut result = Vec::new();
+        let mut set: ListMap<&Atom, ()> = ListMap::new();
+        for atom in args.children() {
+            match set.entry(atom) {
+                ListMapEntry::Occupied(_, _) => (),
+                ListMapEntry::Vacant(key, map) => {
+                    map.insert(key, ());
+                    result.push(key.clone());
+                }
+            }
+        }
+
+        Ok(vec![Atom::expr(result)])
+    }
+}
+
 //TODO: The additional arguments are a temporary hack on account of the way the operation atoms store references
 // to the runner & module state.  https://github.com/trueagi-io/hyperon-experimental/issues/410
 pub fn register_common_tokens(tref: &mut Tokenizer, _tokenizer: Shared<Tokenizer>, space: &DynSpace, metta: &Metta) {
@@ -527,6 +565,8 @@ pub fn register_rust_stdlib_tokens(target: &mut Tokenizer) {
     tref.register_token(regex(r">="), move |_| { ge_op.clone() });
     let eq_op = Atom::gnd(stdlib::EqualOp{});
     tref.register_token(regex(r"=="), move |_| { eq_op.clone() });
+    let dedup_atom_op = Atom::gnd(DedupAtomOp{});
+    tref.register_token(regex(r"dedup-atom"), move |_| { dedup_atom_op.clone() });
 
     target.move_front(&mut rust_tokens);
 }
