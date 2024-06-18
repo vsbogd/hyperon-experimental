@@ -2,6 +2,7 @@
 //! This module is intended to keep different space implementations.
 
 pub mod grounding;
+pub mod grounding2;
 
 use std::fmt::Display;
 use std::rc::{Rc, Weak};
