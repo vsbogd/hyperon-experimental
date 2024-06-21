@@ -271,7 +271,7 @@ impl MettaMod {
                     // two GroundedAtoms wrapping DynSpaces as being the same, even if the underlying space is
                     let mut new_space = GroundingSpace::new();
                     new_space.set_name(self.path().to_string());
-                    for atom in dep_g_space.atom_iter().unwrap() {
+                    for atom in query_all_atoms(dep_g_space) {
                         if let Some(sub_space) = atom.as_gnd::<DynSpace>() {
                             if !deps_table.values().any(|space| space == sub_space) {
                                 new_space.add(atom.clone());

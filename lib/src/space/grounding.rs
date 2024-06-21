@@ -4,50 +4,14 @@
 use crate::*;
 use super::*;
 use crate::atom::*;
-use crate::atom::matcher::match_atoms;
 use crate::atom::subexpr::split_expr;
-use crate::common::multitrie::{MultiTrie, TrieKey, TrieToken};
-
-use std::fmt::Debug;
-use std::collections::BTreeSet;
-use std::collections::HashSet;
+use crate::common::multitrie::{TrieKey, TrieToken};
 use std::hash::{DefaultHasher, Hasher};
 use crate::common::collections::ImmutableString;
 
-// Grounding space
-
-/// Symbol to concatenate queries to space.
-pub const COMMA_SYMBOL : Atom = sym!(",");
-
-struct GroundingSpaceIter<'a> {
-    space: &'a GroundingSpace,
-    i: usize,
-}
-
-impl<'a> GroundingSpaceIter<'a> {
-    fn new(space: &'a GroundingSpace) -> Self {
-        GroundingSpaceIter { space, i: 0 }
-    }
-}
-
-impl<'a> Iterator for GroundingSpaceIter<'a> {
-    type Item = &'a Atom;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let len = self.space.content.len();
-        let mut i = self.i;
-        while i < len && self.space.free.contains(&i) {
-            i += 1;
-        }
-        if i >= len {
-            self.i = i;
-            None
-        } else {
-            self.i = i + 1;
-            self.space.content.get(i)
-        }
-    }
-}
+use std::fmt::Debug;
+use std::collections::HashSet;
+use crate::space::grounding2::*;
 
 pub(crate) fn atom_to_trie_key(atom: &Atom) -> TrieKey<SymbolAtom> {
     fn fill_key(atom: &Atom, tokens: &mut Vec<TrieToken<SymbolAtom>>) {
@@ -77,13 +41,16 @@ pub(crate) fn atom_to_trie_key(atom: &Atom) -> TrieKey<SymbolAtom> {
     TrieKey::from(tokens)
 }
 
+// Grounding space
+
+/// Symbol to concatenate queries to space.
+pub const COMMA_SYMBOL : Atom = sym!(",");
+
 /// In-memory space which can contain grounded atoms.
 // TODO: Clone is required by C API
 #[derive(Clone)]
 pub struct GroundingSpace {
-    index: MultiTrie<SymbolAtom, usize>,
-    content: Vec<Atom>,
-    free: BTreeSet<usize>,
+    index: AtomIndex,
     common: SpaceCommon,
     name: Option<String>,
 }
@@ -93,9 +60,7 @@ impl GroundingSpace {
     /// Constructs new empty space.
     pub fn new() -> Self {
         Self {
-            index: MultiTrie::new(),
-            content: Vec::new(),
-            free: BTreeSet::new(),
+            index: AtomIndex::new(),
             common: SpaceCommon::default(),
             name: None,
         }
@@ -103,14 +68,12 @@ impl GroundingSpace {
 
     /// Constructs space from vector of atoms.
     pub fn from_vec(atoms: Vec<Atom>) -> Self {
-        let mut index = MultiTrie::new();
-        for (i, atom) in atoms.iter().enumerate() {
-            index.insert(atom_to_trie_key(atom), i);
+        let mut index = AtomIndex::new();
+        for atom in atoms {
+            index.insert(atom);
         }
         Self{
             index,
-            content: atoms,
-            free: BTreeSet::new(),
             common: SpaceCommon::default(),
             name: None,
         }
@@ -135,21 +98,8 @@ impl GroundingSpace {
     /// ```
     pub fn add(&mut self, atom: Atom) {
         //log::debug!("GroundingSpace::add(): self: {:?}, atom: {:?}", self as *const GroundingSpace, atom);
-        self.add_internal(atom.clone());
+        self.index.insert(atom.clone());
         self.common.notify_all_observers(&SpaceEvent::Add(atom));
-    }
-
-    fn add_internal(&mut self, atom: Atom) {
-        if self.free.is_empty() {
-            let pos = self.content.len();
-            self.index.insert(atom_to_trie_key(&atom), pos);
-            self.content.push(atom);
-        } else {
-            let pos = *self.free.iter().next().unwrap();
-            self.free.remove(&pos);
-            self.index.insert(atom_to_trie_key(&atom), pos);
-            self.content[pos] = atom;
-        }
     }
 
     /// Removes `atom` from space. Returns true if atom was found and removed,
@@ -170,25 +120,12 @@ impl GroundingSpace {
     /// ```
     pub fn remove(&mut self, atom: &Atom) -> bool {
         //log::debug!("GroundingSpace::remove(): self: {:?}, atom: {:?}", self as *const GroundingSpace, atom);
-        let is_removed = self.remove_internal(atom);
-        if is_removed {
-            self.common.notify_all_observers(&SpaceEvent::Remove(atom.clone()));
-        }
-        is_removed
-    }
-
-    fn remove_internal(&mut self, atom: &Atom) -> bool {
-        let index_key = atom_to_trie_key(atom);
-        let indexes: Vec<usize> = self.index.get(&index_key).map(|i| *i).collect();
-        let mut indexes: Vec<usize> = indexes.into_iter()
-            .filter(|i| self.content[*i] == *atom).collect();
-        indexes.sort_by(|a, b| b.partial_cmp(a).unwrap());
-        let is_removed = indexes.len() > 0;
-        for i in indexes {
-            self.index.remove(&index_key, &i);
-            self.free.insert(i);
-        }
-        is_removed
+        todo!();
+        //let is_removed = self.remove_internal(atom);
+        //if is_removed {
+            //self.common.notify_all_observers(&SpaceEvent::Remove(atom.clone()));
+        //}
+        //is_removed
     }
 
     /// Replaces `from` atom to `to` atom inside space. Doesn't add `to` when
@@ -210,19 +147,12 @@ impl GroundingSpace {
     /// assert_eq!(space.query(&sym!("B")), BindingsSet::single());
     /// ```
     pub fn replace(&mut self, from: &Atom, to: Atom) -> bool {
-        let is_replaced = self.replace_internal(from, to.clone());
-        if is_replaced {
-            self.common.notify_all_observers(&SpaceEvent::Replace(from.clone(), to));
-        }
-        is_replaced
-    }
-
-    fn replace_internal(&mut self, from: &Atom, to: Atom) -> bool {
-        let is_replaced = self.remove_internal(from);
-        if is_replaced {
-            self.add_internal(to);
-        }
-        is_replaced
+        todo!();
+        //let is_replaced = self.replace_internal(from, to.clone());
+        //if is_replaced {
+            //self.common.notify_all_observers(&SpaceEvent::Replace(from.clone(), to));
+        //}
+        //is_replaced
     }
 
     /// Executes `query` on the space and returns variable bindings found.
@@ -275,15 +205,10 @@ impl GroundingSpace {
         log::debug!("single_query: query: {}", query);
         let mut result = BindingsSet::empty();
         let query_vars: HashSet<&VariableAtom> = query.iter().filter_type::<&VariableAtom>().collect();
-        for i in self.index.get(&atom_to_trie_key(query)) {
-            let next = self.content.get(*i).expect(format!("Index contains absent atom: key: {:?}, position: {}", query, i).as_str());
-            let next = make_variables_unique(next.clone());
-            log::trace!("single_query: match next: {}", next);
-            for bindings in match_atoms(&next, query) {
-                let bindings = bindings.narrow_vars(&query_vars);
-                log::trace!("single_query: push result: {}", bindings);
-                result.push(bindings);
-            }
+        for bindings in self.index.query(query) {
+            let bindings = bindings.narrow_vars(&query_vars);
+            log::trace!("single_query: push result: {}", bindings);
+            result.push(bindings);
         }
         log::debug!("single_query: result: {:?}", result);
         result
@@ -291,7 +216,7 @@ impl GroundingSpace {
 
     /// Returns the iterator over content of the space.
     pub fn iter(&self) -> SpaceIter {
-        SpaceIter::new(GroundingSpaceIter::new(self))
+        todo!();
     }
 
     /// Sets the name property for the `GroundingSpace` which can be useful for debugging
@@ -316,7 +241,7 @@ impl Space for GroundingSpace {
         Some(self.iter().count())
     }
     fn atom_iter(&self) -> Option<SpaceIter> {
-        Some(self.iter())
+        None
     }
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         Some(self)
@@ -343,7 +268,7 @@ impl SpaceMut for GroundingSpace {
 
 impl PartialEq for GroundingSpace {
     fn eq(&self, other: &Self) -> bool {
-        self.content == other.content
+        self.index == other.index
     }
 }
 
@@ -384,6 +309,7 @@ impl CustomMatch for GroundingSpace {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::matcher::*;
 
     struct SpaceEventCollector {
         events: Vec<SpaceEvent>,
@@ -680,16 +606,4 @@ mod test {
         assert_eq!(result, bind_set![{x: sym!("a")}]);
     }
 
-    #[test]
-    fn index_atom_to_key() {
-        assert_eq!(atom_to_trie_key(&Atom::sym("A")), TrieKey::from([TrieToken::Exact(SymbolAtom::new("A".into()))]));
-        assert_eq!(atom_to_trie_key(&Atom::value(1)), TrieKey::from([TrieToken::Wildcard]));
-        assert_eq!(atom_to_trie_key(&Atom::var("a")), TrieKey::from([TrieToken::Wildcard]));
-        assert_eq!(atom_to_trie_key(&expr!("A" "B")), TrieKey::from([
-                TrieToken::LeftPar,
-                TrieToken::Exact(SymbolAtom::new("A".into())),
-                TrieToken::Exact(SymbolAtom::new("B".into())),
-                TrieToken::RightPar
-        ]));
-    }
 }
