@@ -396,3 +396,11 @@ impl<T: Space> Space for &T {
     }
 }
 
+/// Query all atoms from space using `$x` query.
+/// Returns iterator over results.
+pub fn query_all_atoms(space: &dyn Space) -> impl Iterator<Item=Atom> {
+    let var = VariableAtom::new("X").make_unique();
+    space.query(&Atom::Variable(var.clone()))
+        .into_iter()
+        .filter_map(move |b| b.resolve(&var))
+}
