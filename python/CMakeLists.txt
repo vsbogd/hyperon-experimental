@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.19)
 project(hyperonpy)
 
-option(GIT "Adds git features to hyperon library; requires OpenSSL and Zlib" ON)
-
 enable_testing()
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure)
 
@@ -30,11 +28,6 @@ execute_process(
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 include(${CMAKE_CURRENT_BINARY_DIR}/conan_paths.cmake)
 
-if(GIT)
-    find_package(OpenSSL REQUIRED)
-    find_package(ZLIB REQUIRED)
-endif()
-
 find_package(pybind11 REQUIRED)
 find_package(optional-lite REQUIRED)
 include_directories(${nonstd_INCLUDE_DIRS})
@@ -47,10 +40,7 @@ if(APPLE)
 endif()
 
 pybind11_add_module(hyperonpy MODULE ./hyperonpy.cpp)
-target_link_libraries(hyperonpy PRIVATE "${hyperonc_STATIC_LIBRARY}")
-if(GIT)
-    target_link_libraries(hyperonpy PUBLIC ${PLATFORM_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
-endif()
+target_link_libraries(hyperonpy PRIVATE "${hyperonc_SHARED_LIBRARY}")
 
 set(PYTHONPATH "${CMAKE_CURRENT_SOURCE_DIR}")
 add_subdirectory(tests)
