@@ -32,24 +32,20 @@ jobs:
         with:
           python-version: "3.10"
 
-      - run: |
+      - name: Save GitHub variables as environment variables
+        run: |
           echo "REF_NAME=${{github.ref_name}}" | tee -a $GITHUB_ENV
           echo "EVENT_NAME=${{github.event_name}}" | tee -a $GITHUB_ENV
           echo "PRERELEASE=${{github.event.release.prerelease}}" | tee -a $GITHUB_ENV
           echo "TAG_NAME=${{github.event.release.tag_name}}" | tee -a $GITHUB_ENV
           echo "COMMIT_HEAD=${{github.ref_name != '' && github.ref_name || env.GITHUB_SHA}}" | tee -a $GITHUB_ENV
 
-      - name: Build wheels on ${{ matrix.os }}
-        if: ${{ !startsWith(matrix.os, 'macos') }}
-        uses: pypa/cibuildwheel@v2.19.2
-        env:
-          CIBW_BEFORE_ALL: sh -c "./python/install-hyperonc.sh -u https://github.com/${{github.repository}}.git -r ${{env.COMMIT_HEAD}}"
-        with:
-          package-dir: ./python
+      - name: Set macOS deployment target
+        if: ${{ startsWith(matrix.os, 'macos') }}
+        run: echo "CIBW_ENVIRONMENT=MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d '.' -f 1-2)" | tee -a $GITHUB_ENV
 
       - name: Build wheels on ${{ matrix.os }}
-        if: ${{ startsWith(matrix.os, 'macos') }}
-        uses: pypa/cibuildwheel@v2.17.0
+        uses: pypa/cibuildwheel@v2.19.2
         env:
           CIBW_BEFORE_ALL: sh -c "./python/install-hyperonc.sh -u https://github.com/${{github.repository}}.git -r ${{env.COMMIT_HEAD}}"
         with:
