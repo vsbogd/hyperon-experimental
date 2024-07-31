@@ -42,7 +42,7 @@ endif()
 pybind11_add_module(hyperonpy MODULE ./hyperonpy.cpp)
 target_link_libraries(hyperonpy PRIVATE "${hyperonc_STATIC_LIBRARY}" nonstd::optional-lite)
 if(GIT)
-    target_link_libraries(hyperonpy PUBLIC ${PLATFORM_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
+    target_link_libraries(hyperonpy PUBLIC ${PLATFORM_LIBRARIES} openssl::openssl ZLIB::ZLIB)
 endif()
 
 set(PYTHONPATH "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -95,7 +95,7 @@ if(BUILD_SHARED_LIBS)
         IMPORTED_NO_SONAME TRUE
         )
     if(GIT)
-        target_link_libraries(hyperonc-shared INTERFACE OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
+        target_link_libraries(hyperonc-shared INTERFACE openssl::openssl ZLIB::ZLIB)
     endif(GIT)
     add_dependencies(hyperonc-shared copy-hyperonc-shared build-hyperonc)
 
