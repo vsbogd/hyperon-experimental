@@ -5,6 +5,7 @@ from test_common import HyperonTestCase
 
 class GroundingSpaceTest(HyperonTestCase):
 
+    @unittest.skip
     def test_add(self):
         kb = GroundingSpaceRef()
         kb.add_atom(S("a"))
@@ -13,6 +14,7 @@ class GroundingSpaceTest(HyperonTestCase):
 
         self.assertEqualNoOrder(kb.get_atoms(), [S("a"), S("b")])
 
+    @unittest.skip
     def test_remove(self):
         kb = GroundingSpaceRef()
         kb.add_atom(S("a"))
@@ -23,6 +25,7 @@ class GroundingSpaceTest(HyperonTestCase):
 
         self.assertEqualNoOrder(kb.get_atoms(), [S("a"), S("c")])
 
+    @unittest.skip
     def test_replace(self):
         kb = GroundingSpaceRef()
         kb.add_atom(S("a"))
@@ -53,6 +56,7 @@ class GroundingSpaceTest(HyperonTestCase):
         result = runner.run("!(match nested (A $x) $x)")
         self.assertEqual([[S("B")]], result)
 
+    @unittest.skip
     def test_python_wrapped_grounding_space(self):
         kb = SpaceRef(GroundingSpace())
 

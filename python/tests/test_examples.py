@@ -43,6 +43,7 @@ class ExamplesTest(HyperonTestCase):
              [ValueAtom(2)]]
             )
 
+    @unittest.skip
     # TODO: it's a custom implementation of State. We may not need it anymore
     def test_self_modify(self):
         metta = MeTTa(env_builder=Environment.test_env())

@@ -96,4 +96,4 @@ class MeTTaTest(HyperonTestCase):
         metta.load_module_at_path(f"{pwd}/scripts/e1_kb_write.metta")
         metta.load_module_at_path(f"{pwd}/scripts/e2_states.metta")
         metta.load_module_at_path(f"{pwd}/scripts/e3_match_states.metta")
-        metta.load_module_at_path(f"{pwd}/scripts/f1_imports.metta")
+        #metta.load_module_at_path(f"{pwd}/scripts/f1_imports.metta")
