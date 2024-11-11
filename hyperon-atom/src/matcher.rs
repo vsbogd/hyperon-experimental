@@ -1121,7 +1121,7 @@ fn match_atoms_recursively(left: &Atom, right: &Atom) -> BindingsSet {
         (_, Atom::Grounded(b)) if b.as_grounded().as_match().is_some() => {
             b.as_grounded().as_match().unwrap().match_(left).collect()
         },
-        (Atom::Grounded(a), Atom::Grounded(b)) if a.eq_gnd(AsRef::as_ref(b)) => BindingsSet::single(),
+        (Atom::Grounded(a), Atom::Grounded(_)) if a.eq_gnd(right) => BindingsSet::single(),
         _ => BindingsSet::empty(),
     };
     log::trace!("match_atoms_recursively: {} ~ {} => {}", left, right, res);
@@ -1219,7 +1219,7 @@ fn atoms_are_equivalent_with_bindings<'a>(left: &'a Atom, right: &'a Atom,
             can_be_renamed(left_vars, left, right) &&
                 can_be_renamed(right_vars, right, left),
         (Atom::Symbol(left), Atom::Symbol(right)) => left == right,
-        (Atom::Grounded(left), Atom::Grounded(right)) => left == right,
+        (Atom::Grounded(left), Atom::Grounded(_)) => left.eq_gnd(right),
         (Atom::Expression(left), Atom::Expression(right)) =>
             left.children().len() == right.children().len() &&
             left.children().iter().zip(right.children().iter())

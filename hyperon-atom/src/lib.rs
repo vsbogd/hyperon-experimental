@@ -411,7 +411,7 @@ impl From<&str> for ExecError {
 /// implemented by users. Use [Atom::value] or implement [Grounded] and use
 /// [Atom::gnd] instead.
 pub trait GroundedAtom : Any + Debug + Display {
-    fn eq_gnd(&self, other: &dyn GroundedAtom) -> bool;
+    fn eq_gnd(&self, other: &Atom) -> bool;
     fn clone_gnd(&self) -> Box<dyn GroundedAtom>;
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -507,6 +507,10 @@ pub trait Grounded : Display {
     /// See [serial] for details.
     fn serialize(&self, _serializer: &mut dyn serial::Serializer) -> serial::Result {
         Err(serial::Error::NotSupported)
+    }
+
+    fn as_equal(&self) -> Option<&dyn CustomEq> {
+        None
     }
 }
 
@@ -627,6 +631,10 @@ pub trait CustomMatch {
     fn match_(&self, other: &Atom) -> matcher::MatchResultIter;
 }
 
+pub trait CustomEq {
+    fn gnd_eq(&self, other: &Atom) -> bool;
+}
+
 /// Returns the name of the Rust type wrapped into [Atom::Symbol]. This is a
 /// default implementation of `type_()` for the grounded types wrapped
 /// automatically.
@@ -674,11 +682,8 @@ impl<T: AutoGroundedType> Grounded for AutoGroundedAtom<T> {
 }
 
 impl<T: AutoGroundedType> GroundedAtom for AutoGroundedAtom<T> {
-    fn eq_gnd(&self, other: &dyn GroundedAtom) -> bool {
-        match other.downcast_ref::<T>() {
-            Some(other) => self.0 == *other,
-            _ => false,
-        }
+    fn eq_gnd(&self, other: &Atom) -> bool {
+        gnd_partial_eq(&self.0, other)
     }
 
     fn clone_gnd(&self) -> Box<dyn GroundedAtom> {
@@ -704,6 +709,13 @@ impl<T: AutoGroundedType> Display for AutoGroundedAtom<T> {
     }
 }
 
+fn gnd_partial_eq<T: 'static + PartialEq>(a: &T, b: &Atom) -> bool {
+    match b.as_gnd::<T>() {
+        Some(other) => a == other,
+        None => false,
+    }
+}
+
 /// Alias for the list of traits required for a custom Rust grounded type
 /// to be successfully wrapped into [GroundedAtom]. It is implemented automatically
 /// when type implements `AutoGroundedType + Display + Grounded`. No need to
@@ -716,10 +728,11 @@ impl<T> CustomGroundedType for T where T: AutoGroundedType + Display + Grounded 
 struct CustomGroundedAtom<T: CustomGroundedType>(T);
 
 impl<T: CustomGroundedType> GroundedAtom for CustomGroundedAtom<T> {
-    fn eq_gnd(&self, other: &dyn GroundedAtom) -> bool {
-        match other.downcast_ref::<T>() {
-            Some(other) => self.0 == *other,
-            _ => false,
+    fn eq_gnd(&self, other: &Atom) -> bool {
+        if let Some(equal) = self.0.as_equal() {
+            equal.gnd_eq(other)
+        } else {
+            gnd_partial_eq(&self.0, other)
         }
     }
 
@@ -777,14 +790,6 @@ impl<T: CustomGroundedType> CustomGroundedTypeToAtom for &Wrap<T> {
         Atom::Grounded(Box::new(CustomGroundedAtom(self.0.clone())))
     }
 }
-
-impl PartialEq for Box<dyn GroundedAtom> {
-    fn eq(&self, other: &Self) -> bool {
-        self.eq_gnd(&**other)
-    }
-}
-
-impl Eq for Box<dyn GroundedAtom> {}
 
 impl Clone for Box<dyn GroundedAtom> {
     fn clone(&self) -> Self {
@@ -999,7 +1004,7 @@ impl PartialEq for Atom {
             // because of strange compiler error which requires Copy trait
             // to be implemented. It prevents using constant atoms as patterns
             // for matching (see COMMA_SYMBOL in grounding.rs for instance).
-            (Atom::Grounded(gnd), Atom::Grounded(other)) => PartialEq::eq(gnd, other),
+            (Atom::Grounded(gnd), Atom::Grounded(_)) => gnd.eq_gnd(other),
             _ => false,
         }
     }
