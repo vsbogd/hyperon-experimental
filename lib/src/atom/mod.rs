@@ -477,7 +477,7 @@ pub trait Grounded : Display {
         Err(serial::Error::NotSupported)
     }
 
-    fn as_equal(&self) -> Option<&dyn CustomEq> {
+    fn eq_gnd(&self, _other: &Atom) -> Option<bool> {
         None
     }
 }
@@ -706,10 +706,9 @@ struct CustomGroundedAtom<T: CustomGroundedType>(T);
 
 impl<T: CustomGroundedType> GroundedAtom for CustomGroundedAtom<T> {
     fn eq_gnd(&self, other: &Atom) -> bool {
-        if let Some(equal) = self.0.as_equal() {
-            equal.gnd_eq(other)
-        } else {
-            gnd_partial_eq(&self.0, other)
+        match self.0.eq_gnd(other) {
+            Some(is_equal) => is_equal,
+            None => gnd_partial_eq(&self.0, other),
         }
     }
 

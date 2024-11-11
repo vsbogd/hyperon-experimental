@@ -111,30 +111,22 @@ impl Display for Number {
     }
 }
 
-impl CustomEq for Number {
-    fn gnd_eq(&self, other: &Atom) -> bool {
-        if let Atom::Grounded(gnd) = other {
-            if self.type_() != gnd.type_() {
-                false
-            } else {
-                match AsPrimitive::from_atom(other).as_number() {
-                    Some(n) => *self == n,
-                    None => false,
-                }
-            }
-        } else {
-            false
-        }
-    }
-}
-
 impl Grounded for Number {
     fn type_(&self) -> Atom {
         ATOM_TYPE_NUMBER
     }
 
-    fn as_equal(&self) -> Option<&dyn CustomEq> {
-        Some(self)
+    fn eq_gnd(&self, other: &Atom) -> Option<bool> {
+        let is_equal = match other {
+            Atom::Grounded(gnd) if self.type_() == gnd.type_() => {
+                match AsPrimitive::from_atom(other).as_number() {
+                    Some(n) => *self == n,
+                    None => false,
+                }
+            },
+            _ => false,
+        };
+        Some(is_equal)
     }
 
     fn serialize(&self, serializer: &mut dyn serial::Serializer) -> serial::Result {
