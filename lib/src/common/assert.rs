@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 pub fn vec_eq_no_order<'a, T, A, B>(left: A, right: B) -> Option<String>
 where
-    T: 'a + PartialEq + std::fmt::Debug,
+    T: 'a + PartialEq + std::fmt::Display,
     A: Iterator<Item=&'a T>,
     B: Iterator<Item=&'a T>,
 {
@@ -37,13 +37,13 @@ trait DiffVisitor<'a, T> {
     fn diff(&mut self, item: &'a T, left: usize, right: usize) -> bool;
 }
 
-impl<'a, T: std::fmt::Debug, E: Equality<&'a T>> VecDiff<'a, T, E> {
+impl<'a, T, E: Equality<&'a T>> VecDiff<'a, T, E> {
     pub fn has_diff(&self) -> bool {
         #[derive(Default)]
         struct FindDiff {
             diff: bool,
         }
-        impl<T: std::fmt::Debug> DiffVisitor<'_, T> for FindDiff {
+        impl<T> DiffVisitor<'_, T> for FindDiff {
             fn diff(&mut self, _item: &T, left: usize, right: usize) -> bool {
                 if left == right {
                     false
@@ -58,20 +58,20 @@ impl<'a, T: std::fmt::Debug, E: Equality<&'a T>> VecDiff<'a, T, E> {
         f.diff
     }
 
-    pub fn as_string(&self) -> Option<String> {
+    pub fn as_string(&self) -> Option<String> where T: std::fmt::Display {
         #[derive(Default)]
         struct StringDiff {
             diff: Option<String>,
         }
-        impl<'a, T: std::fmt::Debug> DiffVisitor<'a, T> for StringDiff {
+        impl<'a, T: std::fmt::Display> DiffVisitor<'a, T> for StringDiff {
             fn diff(&mut self, item: &'a T, left: usize, right: usize) -> bool {
                 match left.cmp(&right) {
                     Ordering::Less => {
-                        self.diff = Some(format!("Missed result: {:?}", item));
+                        self.diff = Some(format!("Missed result: {}", item));
                         true
                     },
                     Ordering::Greater => {
-                        self.diff = Some(format!("Excessive result: {:?}", item));
+                        self.diff = Some(format!("Excessive result: {}", item));
                         true
                     },
                     Ordering::Equal => false,
@@ -105,7 +105,7 @@ macro_rules! assert_eq_no_order {
     }
 }
 
-pub fn metta_results_eq<T: PartialEq + std::fmt::Debug>(
+pub fn metta_results_eq<T: PartialEq + std::fmt::Display>(
     left: &Result<Vec<Vec<T>>, String>, right: &Result<Vec<Vec<T>>, String>) -> bool
 {
     match (left, right) {
