@@ -1044,19 +1044,28 @@ fn interpret_expression(args: Atom, bindings: Bindings) -> MettaResult {
             let space_ref = space.as_gnd::<DynSpace>().unwrap();
             let actual_types = get_atom_types_v2(space_ref, op);
 
-            let only_error_types = !actual_types.is_empty() && actual_types.iter().all(AtomType::is_error);
-            let err = if only_error_types {
+            let mut only_error_types = true;
+            let mut has_tuple_type = false;
+            let mut has_func_type = false;
+            for t in &actual_types {
+                if !t.is_error() {
+                    only_error_types = false;
+                    if !t.is_function() {
+                        has_tuple_type = true;
+                    } else {
+                        has_func_type = true;
+                    }
+                }
+            }
+
+            let err = if !actual_types.is_empty() && only_error_types {
                 log::debug!("interpret_expression: op type check: expr: {}, op types: [{}]", expr, actual_types.iter().format(", "));
                 once((return_atom(error_atom(op.clone(), BAD_TYPE_SYMBOL)), bindings.clone()))
             } else {
                 empty()
             };
 
-            let has_tuple_type = actual_types.is_empty() || actual_types.iter()
-                .filter(|t| !t.is_error() && !t.is_function())
-                .next()
-                .is_some();
-            let tuple = if has_tuple_type {
+            let tuple = if actual_types.is_empty() || has_tuple_type {
                 let reduced = Atom::Variable(VariableAtom::new("reduced").make_unique());
                 let result = Atom::Variable(VariableAtom::new("result").make_unique());
                 once((
@@ -1069,13 +1078,11 @@ fn interpret_expression(args: Atom, bindings: Bindings) -> MettaResult {
                 empty()
             };
 
-            let mut func_types = actual_types.into_iter()
-                .filter(|t| !t.is_error() && t.is_function())
-                .map(AtomType::into_atom)
-                .peekable();
-            let func = if func_types.peek().is_some() {
+            let func = if has_func_type {
                 let ret_typ = expr_typ.clone();
-                let type_check_results = func_types.flat_map(|typ| check_if_function_type_is_applicable(&expr, typ, &ret_typ, space_ref, bindings.clone()));
+                let type_check_results = actual_types.into_iter()
+                    .filter(|t| !t.is_error() && t.is_function())
+                    .flat_map(|typ| check_if_function_type_is_applicable(&expr, typ.into_atom(), &ret_typ, space_ref, bindings.clone()));
                 let mut errors = Vec::new();
                 for res in type_check_results {
                     log::debug!("interpret_expression: function type check: expr: {} type: {:?}", expr, res);
