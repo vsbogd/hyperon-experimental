@@ -964,18 +964,35 @@ fn type_cast(space: Atom, atom: Atom, expected_type: Atom, bindings: Bindings) -
         once((return_atom(atom), bindings))
     } else {
         let space = space.as_gnd::<DynSpace>().unwrap();
-        let first_match = get_atom_types(space, &atom).into_iter()
-            .map(|actual_type| match_types(&expected_type, &actual_type, bindings.clone()))
-            .filter(|res| res.is_ok())
-            .flat_map(|res| {
-                match res {
-                    Ok(it) => it,
-                    Err(_) => panic!("Unexpected state"),
+        let atom_types = get_atom_types_v2(space, &atom);
+        if atom_types.is_empty() {
+            return once((return_atom(atom), bindings));
+        }
+        let mut first_error = None;
+        for atom_type in atom_types {
+            if atom_type.is_error() {
+                if first_error.is_none() {
+                    first_error = Some((return_atom(error_atom(atom.clone(), BAD_TYPE_SYMBOL)), bindings.clone()));
                 }
-            })
-            .next();
-        match first_match {
-            Some(bindings) => once((return_atom(atom), bindings)),
+            } else {
+                match match_types(&expected_type, atom_type.as_atom(), bindings.clone()) {
+                    Ok(it) => {
+                        for bindings in it {
+                            return once((return_atom(atom), bindings))
+                        }
+                    },
+                    Err(mut it) => {
+                        if first_error.is_none() {
+                            if let Some(bindings) = it.next() {
+                                first_error = Some((return_atom(error_atom(atom.clone(), BAD_TYPE_SYMBOL)), bindings));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        match first_error {
+            Some((error, bindings)) => once((error, bindings)),
             None => once((return_atom(error_atom(atom, BAD_TYPE_SYMBOL)), bindings)),
         }
     }
