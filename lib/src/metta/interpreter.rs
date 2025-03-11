@@ -1267,15 +1267,20 @@ fn check_if_function_type_is_applicable_<'a>(expr: &'a Atom, op_type: Atom, mut 
                     if is_meta_type(&formal_arg_type) && match_meta_types(&get_meta_type(actual_arg), &formal_arg_type) {
                         check_if_function_type_is_applicable_(expr, op_type, arg_types_tail, args_tail, expected_type, space, bindings)
                     } else {
-                        let mut actual_arg_types = get_atom_types(space, actual_arg).into_iter().peekable();
-                        if  actual_arg_types.peek().is_none() {
+                        let actual_arg_types = get_atom_types_v2(space, actual_arg);
+                        if actual_arg_types.is_empty() {
+                            return check_if_function_type_is_applicable_(expr, op_type.clone(), arg_types_tail.clone(), args_tail, expected_type, space, bindings)
+                        }
+                        if actual_arg_types.iter().all(AtomType::is_error) {
                             return once((Err(error_atom(actual_arg.clone(), BAD_TYPE_SYMBOL)), bindings))
                         }
-                        let actual_arg_types = actual_arg_types.inspect(move |typ| log::trace!("check_if_function_type_is_applicable_: function type check: expr: {}, actual_arg: {}, actual_type: {}", expr, actual_arg, typ));
+                        let actual_arg_types = actual_arg_types.into_iter()
+                            .inspect(move |typ| log::trace!("check_if_function_type_is_applicable_: function type check: expr: {}, actual_arg: {}, actual_type: {}", expr, actual_arg, typ))
+                            .filter(|t| !t.is_error());
                         let iter = actual_arg_types.flat_map(move |actual_arg_type| -> Box<dyn Iterator<Item=(Result<Atom, Atom>, Bindings)> + '_> {
                             let arg_types_tail = arg_types_tail.clone();
                             let op_type = op_type.clone();
-                            match match_types(&formal_arg_type, &actual_arg_type, bindings.clone()) {
+                            match match_types(&formal_arg_type, actual_arg_type.as_atom(), bindings.clone()) {
                                 Ok(matches) => Box::new(matches.flat_map(move |bindings| check_if_function_type_is_applicable_(expr, op_type.clone(), arg_types_tail.clone(), args_tail, expected_type, space, bindings))),
                                 Err(nomatch) => Box::new(nomatch.map(|bindings| (Err(error_atom(actual_arg.clone(), BAD_TYPE_SYMBOL)), bindings))),
                             }
