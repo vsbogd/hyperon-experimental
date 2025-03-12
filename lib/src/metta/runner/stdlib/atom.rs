@@ -2,7 +2,7 @@ use crate::*;
 use crate::space::*;
 use crate::metta::*;
 use crate::metta::text::Tokenizer;
-use crate::metta::types::{get_atom_types, get_meta_type};
+use crate::metta::types::{get_atom_types_v2, get_meta_type};
 use crate::common::multitrie::{MultiTrie, TrieKey, TrieToken};
 use crate::common::collections::ImmutableString;
 use super::{grounded_op, regex};
@@ -381,11 +381,13 @@ impl CustomExecute for GetTypeOp {
                 .ok_or("match expects a space as the first argument"),
             None => Ok(&self.space),
         }?;
-        let types = get_atom_types(space, atom);
+        let types = get_atom_types_v2(space, atom);
         if types.is_empty() {
-            Ok(vec![EMPTY_SYMBOL])
+            Ok(vec![ATOM_TYPE_UNDEFINED])
         } else {
-            Ok(types)
+            Ok(types.into_iter()
+                .filter_map(|t| if t.is_error() { None } else { Some(t.into_atom()) })
+                .collect())
         }
     }
 }
@@ -437,7 +439,14 @@ impl CustomExecute for GetTypeSpaceOp {
         let atom = args.get(1).ok_or_else(arg_error)?;
         log::debug!("GetTypeSpaceOp::execute: space: {}, atom: {}", space, atom);
 
-        Ok(get_atom_types(space, atom))
+        let types = get_atom_types_v2(space, atom);
+        if types.is_empty() {
+            Ok(vec![ATOM_TYPE_UNDEFINED])
+        } else {
+            Ok(types.into_iter()
+                .filter_map(|t| if t.is_error() { None } else { Some(t.into_atom()) })
+                .collect())
+        }
     }
 }
 
@@ -742,7 +751,6 @@ mod tests {
         let get_type_op = GetTypeOp::new(space.clone());
         assert_eq_no_order!(get_type_op.execute(&mut vec![expr!("f" "42"), expr!({space.clone()})]).unwrap(),
             vec![sym!("String")]);
-        assert_eq_no_order!(get_type_op.execute(&mut vec![expr!("f" "\"test\""), expr!({space.clone()})]).unwrap(),
-            vec![EMPTY_SYMBOL]);
+        assert!(get_type_op.execute(&mut vec![expr!("f" "\"test\""), expr!({space.clone()})]).unwrap().is_empty());
     }
 }
