@@ -9,6 +9,7 @@ use hyperon::metta::runner::{Metta, RunContext, RunnerState, Environment, EnvBui
 use hyperon::metta::runner::modules::{ModuleLoader, ModId, ResourceKey, Resource};
 use hyperon::metta::runner::pkg_mgmt::{FsModuleFormat, ModuleDescriptor};
 use hyperon::atom::*;
+use hyperon::metta::types::AtomType;
 
 use crate::util::*;
 use crate::atom::*;
@@ -647,6 +648,74 @@ pub extern "C" fn validate_atom(space: *const space_t, atom: *const atom_ref_t) 
     hyperon::metta::types::validate_atom(dyn_space.borrow().as_space(), atom)
 }
 
+#[repr(C)]
+enum RustAtomType {
+    None,
+    Owned(*mut AtomType),
+    Borrowed(*const AtomType),
+}
+
+#[repr(transparent)]
+pub struct atom_type_t {
+    typ: RustAtomType,
+}
+
+impl From<AtomType> for atom_type_t {
+    fn from(typ: AtomType) -> Self {
+        Self{ typ: RustAtomType::Owned(Box::into_raw(Box::new(typ))) }
+    }
+}
+
+impl From<&AtomType> for atom_type_t {
+    fn from(typ: &AtomType) -> Self {
+        Self{ typ: RustAtomType::Borrowed((typ as *const AtomType).cast()) }
+    }
+}
+
+impl atom_type_t {
+    pub(crate) fn null() -> Self {
+        Self{ typ: RustAtomType::None }
+    }
+    pub(crate) fn borrow(&self) -> &AtomType {
+        match self.typ {
+            RustAtomType::None => panic!("Attempt to access NULL atom type"),
+            RustAtomType::Owned(typ) => unsafe{ &*typ },
+            RustAtomType::Borrowed(typ) => unsafe{ &*typ },
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn atom_type_value(atom: atom_t) -> atom_type_t {
+    let atom = atom.into_inner();
+    println!("atom: {}", atom);
+    let ptr = Box::into_raw(Box::new(AtomType::value(atom)));
+    atom_type_t{ typ: RustAtomType::Owned(ptr) }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn atom_type_eq(a: *const atom_type_t, b: *const atom_type_t) -> bool {
+    (&*a).borrow() == (&*b).borrow()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn atom_type_ref(typ: *const atom_type_t) -> atom_type_t {
+    unsafe{ (*typ).borrow() }.into()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn atom_type_null() -> atom_type_t {
+    atom_type_t::null()
+}
+
+#[no_mangle]
+pub extern "C" fn atom_type_to_str(typ: *const atom_type_t, buf: *mut c_char, buf_len: usize) -> usize {
+    let typ = unsafe{ &*typ }.borrow();
+    write_into_buf(typ, buf, buf_len)
+}
+
+pub type c_atom_type_callback_t = extern "C" fn(atom_type: atom_type_t, context: *mut c_void);
+
 /// @brief Provides all types for `atom` in the context of `space`
 /// @ingroup metta_language_group
 /// @param[in]  space  A pointer to the `space_t` representing the space context in which to access the Atom's types
@@ -658,11 +727,12 @@ pub extern "C" fn validate_atom(space: *const space_t, atom: *const atom_ref_t) 
 ///
 #[no_mangle]
 pub extern "C" fn get_atom_types(space: *const space_t, atom: *const atom_ref_t,
-        callback: c_atom_vec_callback_t, context: *mut c_void) {
+        callback: c_atom_type_callback_t, context: *mut c_void) {
     let dyn_space = unsafe{ &*space }.borrow();
     let atom = unsafe{ (&*atom).borrow() };
-    let types = hyperon::metta::types::get_atom_types(dyn_space.borrow().as_space(), atom);
-    return_atoms(&types, callback, context);
+    for typ in hyperon::metta::types::get_atom_types_v2(dyn_space.borrow().as_space(), atom) {
+        callback(typ.into(), context)
+    }
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

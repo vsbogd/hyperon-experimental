@@ -8,6 +8,7 @@
 void str_to_buf(const char *str, void *context);
 
 char* stratom(atom_t const* atom);
+char* stratomtype(atom_type_t const* atom_type);
 atom_t expr(atom_t atom, ...);
 
 // A function that initializes a MeTTa runner with a test environment, similar to `metta_new_rust()`

@@ -12,6 +12,13 @@ char* stratom(atom_t const* atom) {
     return buffer;
 }
 
+char* stratomtype(atom_type_t const* typ) {
+    size_t len = atom_type_to_str(typ, NULL, 0);
+    char* buffer = malloc(len+1);
+    atom_type_to_str(typ, buffer, len+1);
+    return buffer;
+}
+
 #define MAXARGS 64
 atom_t expr(atom_t atom, ...) {
     va_list ap;
