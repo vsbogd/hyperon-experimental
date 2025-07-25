@@ -787,7 +787,7 @@ fn atom_bindings_into_atom(atom: Atom, bindings: Bindings) -> Atom {
 }
 
 fn unify_to_stack(mut atom: Atom, prev: Option<Rc<RefCell<Stack>>>) -> Stack {
-    let () = match atom_as_slice_mut(&mut atom) {
+    let () = match atom_as_slice(&mut atom) {
         Some([_op, _a, _b, _then, _else]) => (),
         _ => {
             let error: String = format!("expected: ({} <atom> <pattern> <then> <else>), found: {}", UNIFY_SYMBOL, atom);
