@@ -94,7 +94,7 @@ macro_rules! expr {
 #[macro_export]
 macro_rules! constexpr {
     () => { $crate::Atom::Expression($crate::ExpressionAtom::new(hyperon_common::collections::CowArray::Literal(&[]))) };
-    ($x:literal) => { $crate::Atom::Symbol($crate::SymbolAtom::new(hyperon_common::unique_string::UniqueString::Const($x))) };
+    ($x:literal) => { $crate::Atom::const_sym($x) };
     (($($x:tt)*)) => { $crate::Atom::Expression($crate::ExpressionAtom::new(hyperon_common::collections::CowArray::Literal(const { &[ $( constexpr!($x) , )* ] }))) };
     ($($x:tt)*) => { $crate::Atom::Expression($crate::ExpressionAtom::new(hyperon_common::collections::CowArray::Literal(const { &[ $( constexpr!($x) , )* ] }))) };
 }
@@ -115,7 +115,7 @@ macro_rules! constexpr {
 /// ```
 #[macro_export]
 macro_rules! sym {
-    ($x:literal) => { $crate::Atom::Symbol($crate::SymbolAtom::new(hyperon_common::unique_string::UniqueString::Const($x))) };
+    ($x:literal) => { $crate::Atom::const_sym($x) };
 }
 
 pub mod matcher;
@@ -871,6 +871,21 @@ impl Atom {
     /// ```
     pub fn sym<T: Into<UniqueString>>(name: T) -> Self {
         Self::Symbol(SymbolAtom::new(name.into()))
+    }
+
+    /// Constructs new constant symbol atom with given `name`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hyperon_atom::Atom;
+    ///
+    /// const a: Atom = Atom::const_sym("A");
+    ///
+    /// assert_eq!(a, Atom::sym("A"));
+    /// ```
+    pub const fn const_sym(name: &'static str) -> Self {
+        Self::Symbol(SymbolAtom::new(UniqueString::Const(name)))
     }
 
     /// Constructs expression out of array of children.

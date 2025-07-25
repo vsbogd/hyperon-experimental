@@ -100,7 +100,7 @@ impl<'a> Iterator for AtomIter<'a> {
                         match expr {
                             Cow::Owned(ref mut e) => {
                                 let cell = unsafe { e.children_mut().get_unchecked_mut(idx) };
-                                let atom = std::mem::replace(cell, Atom::sym(""));
+                                let atom = std::mem::replace(cell, Atom::const_sym(""));
                                 (Cow::Owned(atom), expr)
                             },
                             Cow::Borrowed(e) => {

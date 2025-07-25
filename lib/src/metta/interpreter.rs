@@ -646,7 +646,7 @@ fn atom_to_stack(atom: Atom, prev: Option<Rc<RefCell<Stack>>>) -> Stack {
 }
 
 fn chain_to_stack(mut atom: Atom, prev: Option<Rc<RefCell<Stack>>>) -> Stack {
-    let mut nested = Atom::sym("%Nested%");
+    let mut nested = Atom::const_sym("%Nested%");
     let (nested_arg, templ_arg) = match atom_as_slice_mut(&mut atom) {
         Some([_op, nested, Atom::Variable(_var), templ]) => (nested, templ),
         _ => {
@@ -693,7 +693,7 @@ fn chain(stack: Stack, bindings: Bindings) -> Vec<InterpretedAtom> {
 }
 
 fn function_to_stack(mut atom: Atom, prev: Option<Rc<RefCell<Stack>>>) -> Stack {
-    let mut nested = Atom::sym("%Nested%");
+    let mut nested = Atom::const_sym("%Nested%");
     let nested_arg = match atom_as_slice_mut(&mut atom) {
         Some([_op, nested @ Atom::Expression(_)]) => nested,
         _ => {
@@ -968,8 +968,8 @@ fn empty<'a, T: 'a>() -> Box<dyn Iterator<Item=T> + 'a> {
 }
 
 #[inline]
-fn call_native_atom(func: NativeFunc, name: &str, args: Atom) -> Atom {
-    function_atom(Atom::expr([CALL_NATIVE_SYMBOL, Atom::sym(name), Atom::value(func), args]))
+fn call_native_atom(func: NativeFunc, name: &'static str, args: Atom) -> Atom {
+    function_atom(Atom::expr([CALL_NATIVE_SYMBOL, Atom::const_sym(name), Atom::value(func), args]))
 }
 
 #[inline]
@@ -1234,7 +1234,7 @@ fn interpret_function(args: Atom, bindings: Bindings) -> MettaResult {
         Atom::expr([CHAIN_SYMBOL, Atom::expr([METTA_SYMBOL, head, Atom::Expression(op_type), space.clone()]), rop.clone(),
             call_native!(return_on_error, Atom::expr([rop.clone(), 
                 Atom::expr([CHAIN_SYMBOL, call_interpret_args.clone(), rargs.clone(),
-                    Atom::expr([UNIFY_SYMBOL, Atom::expr([Atom::sym("Ok"), unpacked_args.clone()]), rargs.clone(),
+                    Atom::expr([UNIFY_SYMBOL, Atom::expr([Atom::const_sym("Ok"), unpacked_args.clone()]), rargs.clone(),
                         Atom::expr([CHAIN_SYMBOL, Atom::expr([CONS_ATOM_SYMBOL, rop, unpacked_args]), result.clone(),
                             return_atom(result)
                         ]),
@@ -1350,7 +1350,7 @@ fn interpret_args(args_: Atom, bindings: Bindings) -> MettaResult {
     if args.children().is_empty() {
         if types_tail.is_empty() {
             match match_types(&types_head, &ret_type, bindings) {
-                Ok(matches) => Box::new(matches.map(move |bindings| (return_atom(Atom::expr([Atom::sym("Ok"), Atom::Expression(args.clone())])), bindings))),
+                Ok(matches) => Box::new(matches.map(move |bindings| (return_atom(Atom::expr([Atom::const_sym("Ok"), Atom::Expression(args.clone())])), bindings))),
                 Err(nomatch) => Box::new(nomatch.map(move |bindings| (return_atom(error_atom(atom.clone(), BAD_TYPE_SYMBOL)), bindings))),
             }
         } else {
@@ -1366,9 +1366,9 @@ fn interpret_args(args_: Atom, bindings: Bindings) -> MettaResult {
         let tail = Atom::Variable(VariableAtom::new("tail").make_unique());
         let call_self = call_native!(interpret_args, Atom::expr([atom, Atom::expr(args_tail), Atom::expr(types_tail), ret_type, space.clone()]));
         let recursion = Atom::expr([CHAIN_SYMBOL, call_self.clone(), rtail.clone(),
-            Atom::expr([UNIFY_SYMBOL, Atom::expr([Atom::sym("Ok"), tail.clone()]), rtail.clone(),
+            Atom::expr([UNIFY_SYMBOL, Atom::expr([Atom::const_sym("Ok"), tail.clone()]), rtail.clone(),
                 Atom::expr([CHAIN_SYMBOL, Atom::expr([CONS_ATOM_SYMBOL, rhead.clone(), tail]), result.clone(),
-                    return_atom(Atom::expr([Atom::sym("Ok"), result]))
+                    return_atom(Atom::expr([Atom::const_sym("Ok"), result]))
                 ]),
                 return_atom(rtail)
             ])
