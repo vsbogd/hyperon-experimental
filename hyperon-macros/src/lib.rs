@@ -39,41 +39,89 @@ impl ToString for Token {
     }
 }
 
+trait PeekableIterator: Iterator {
+    fn peek(&mut self) -> Option<&Self::Item>; 
+}
+
+impl<I: Iterator> PeekableIterator for Peekable<I> {
+    fn peek(&mut self) -> Option<&Self::Item> {
+        Peekable::peek(self)
+    }
+}
+
 struct Tokenizer {
     prev: (Token, Span),
-    input: Peekable<proc_macro::token_stream::IntoIter>,
+    input: Box<dyn PeekableIterator<Item = TokenTree>>,
 }
 
 impl Tokenizer {
     fn new(input: TokenStream) -> Self {
-        let mut input = input.into_iter().peekable();
+        let mut input = input.into_iter().flat_map(Self::convert_group).peekable();
         let prev = match input.next() {
             Some(tt) => Self::to_token(tt),
             None => (Token::End, Span::call_site()),
         };
         Self {
             prev,
-            input,
+            input: Box::new(input),
+        }
+    }
+
+    fn convert_group(tt: TokenTree) -> Box<dyn Iterator<Item=TokenTree>> {
+        match tt {
+            TokenTree::Group(g) => {
+                let open = std::iter::once(TokenTree::Punct(Punct::new(Self::delimiter_open(g.delimiter()), Spacing::Alone)));
+                let close = std::iter::once(TokenTree::Punct(Punct::new(Self::delimiter_close(g.delimiter()), Spacing::Alone)));
+                Box::new(open.chain(g.stream().into_iter()).chain(close))
+            },
+            _ => {
+                Box::new(std::iter::once(tt))
+            }
+        }
+    }
+
+    fn delimiter_open(d: Delimiter) -> char {
+        match d {
+            Delimiter::Parenthesis => '(',
+            Delimiter::Brace => '{',
+            Delimiter::Bracket => '[',
+            Delimiter::None => panic!("Not expected"),
+        }
+    }
+
+    fn delimiter_close(d: Delimiter) -> char {
+        match d {
+            Delimiter::Parenthesis => ')',
+            Delimiter::Brace => '}',
+            Delimiter::Bracket => ']',
+            Delimiter::None => panic!("Not expected"),
         }
     }
 
     fn next(&mut self) -> Token {
-
-        let mut next = match self.input.peek() {
-            None => {
-                match self.prev.0 {
-                    Token::Space => (Token::End, self.prev.1),
-                    _ => (Token::Space, self.prev.1),
-                }
-            },
-            Some(tt) => {
-                if Self::range(self.prev.1.end()) == Self::range(tt.span().start()) {
-                    Self::to_token(self.input.next().unwrap())
-                } else {
-                    (Token::Space, tt.span())
-                }
-            },
-        };
+        loop {
+            let mut next = match self.input.peek() {
+                None => Token::End,
+                Some(TokenTree::Group(_)) => {
+                    let mut input = std::mem::replace(&mut self.input,
+                        Box::new(TokenStream::new().into_iter().peekable()));
+                    match input.next() {
+                        Some(TokenTree::Group(g)) => {
+                            self.input = Box::new(g.stream().into_iter().chain(input).peekable());
+                            Token::Punct('(')
+                        },
+                        _ => unreachable!(),
+                    }
+                },
+                Some(tt) => {
+                    if Self::range(self.prev.1.end()) == Self::range(tt.span().start()) {
+                        Self::to_token(self.input.next().unwrap())
+                    } else {
+                        (Token::Space, tt.span())
+                    }
+                },
+            };
+        }
 
         std::mem::swap(&mut next, &mut self.prev);
         next.0
@@ -83,7 +131,7 @@ impl Tokenizer {
         (span.line(), span.column())
     }
 
-    fn to_token(tt: TokenTree) -> (Token, Span) {
+    fn to_token(tt: Option<TokenTree>) -> (Token, Span) {
         let span = tt.span();
         let t = match &tt {
             TokenTree::Literal(l) => {
@@ -339,15 +387,14 @@ impl MettaConverter {
                 State::ExpectSpace
             },
 
-            (State::Start, Token::Other(TokenTree::Group(g)))
-                if g.delimiter() == Delimiter::Parenthesis => {
-                    self.output.expr_start();
-                    State::Expression
+            (State::Start, Token::Punct('(')) => {
+                self.output.expr_start();
+                State::Expression
             },
             (State::Expression, Token::Space) => {
                 State::Expression
             },
-            (State::Expression, Token::End) => {
+            (State::Expression, Token::Punct(')')) => {
                 self.output.expr_end();
                 State::Start
             },
