@@ -60,9 +60,7 @@ pub const NO_DUPLICATION: NoDuplication = NoDuplication{};
 /// Key for atoms insertion.
 pub enum InsertKey {
     /// Start of the expression token.
-    StartExpr,
-    /// End of the expression token.
-    EndExpr,
+    StartExpr(usize),
     /// Movable atom token.
     Atom(Atom),
 }
@@ -71,9 +69,7 @@ pub enum InsertKey {
 #[derive(Clone, Debug)]
 pub enum QueryKey<'a> {
     /// Start expression token with expression to be queried.
-    StartExpr(&'a Atom),
-    /// End expression token.
-    EndExpr,
+    StartExpr(&'a Atom, usize),
     /// Borrowed atom token.
     Atom(&'a Atom),
 }
@@ -81,20 +77,21 @@ pub enum QueryKey<'a> {
 impl QueryKey<'_> {
     /// Consumes key until the end of the current expression. It assumes start
     /// token of the expression is already consumed.
-    fn skip_expression<'a, I: Iterator<Item=QueryKey<'a>>>(key: &mut I) {
-        let mut par = 0;
+    fn skip_expression<'a, I: Iterator<Item=QueryKey<'a>>>(key: &mut I, mut count: usize) {
         let mut is_end = |key: &QueryKey| {
             match key {
-                QueryKey::StartExpr(_) => {
-                    par = par + 1;
+                QueryKey::StartExpr(_, size) => {
+                    count += size;
                     false
                 },
-                QueryKey::EndExpr if par == 0 => true,
-                QueryKey::EndExpr if par > 0 => {
-                    par = par - 1;
-                    false
+                _ => {
+                    if count == 0 {
+                        true
+                    } else {
+                        count -= 1;
+                        false
+                    }
                 },
-                _ => false,
             }
         };
         loop {
@@ -118,17 +115,11 @@ struct TrieKeyStorage {
     vec: HoleyVec<Atom>,
 }
 
-/// Start expression key which is represented as a max possible value of the TrieKey.
-const TK_START_EXPR: TrieKey = TrieKey::new(TrieKeyStore::Hash, AtomMatchMode::Equality, TK_VALUE_MASK);
-/// End expression key which is represented as a max possible value of the TrieKey minus one.
-const TK_END_EXPR: TrieKey = TrieKey::new(TrieKeyStore::Hash, AtomMatchMode::Equality, TK_VALUE_MASK - 1);
-
 impl TrieKeyStorage {
     /// Add key into the storage and return corresponding [TrieKey].
     pub fn insert_key(&mut self, key: InsertKey) -> TrieKey {
         match key {
-            InsertKey::StartExpr => TK_START_EXPR,
-            InsertKey::EndExpr => TK_END_EXPR,
+            InsertKey::StartExpr(size) => TrieKey::start_expr(size),
             InsertKey::Atom(atom @ Atom::Variable(_)) => self.add_atom(AtomMatchMode::Unification, atom),
             InsertKey::Atom(atom @ Atom::Grounded(_)) => {
                 match &atom {
@@ -151,7 +142,7 @@ impl TrieKeyStorage {
             // matchable keys (for instance grounded atom without both matching
             // and serialization) in a collection for equality matching or in a
             // collection for a unification matching. When they are kept in equality
-            // matching collection then each occurence of such key in query
+            // matching collection then each occurrence of such key in query
             // will go through all equality entries + all unifiable entries. If they
             // are kept in a unification matching collection (see TrieNode)
             // then when equality key is matched it is matched via all such keys
@@ -170,8 +161,7 @@ impl TrieKeyStorage {
     /// possible and reference to the atom.
     pub fn query_key<'a>(&self, key: &QueryKey<'a>) -> (AtomMatchMode, Option<TrieKey>, Option<&'a Atom>) {
         match key {
-            QueryKey::StartExpr(atom) => (AtomMatchMode::Equality, Some(TK_START_EXPR), Some(atom)),
-            QueryKey::EndExpr => (AtomMatchMode::Equality, Some(TK_END_EXPR), None),
+            QueryKey::StartExpr(atom, size) => (AtomMatchMode::Equality, Some(TrieKey::start_expr(*size)), Some(atom)),
             QueryKey::Atom(atom @ Atom::Variable(_)) => self.get_key(AtomMatchMode::Unification, atom),
             QueryKey::Atom(atom @ Atom::Grounded(gnd)) if gnd.as_grounded().as_match().is_some() =>
                 self.get_key(AtomMatchMode::Unification, atom),
@@ -310,10 +300,7 @@ impl<D: DuplicationStrategy> AtomTrie<D> {
             return result;
         }
         
-        let mut is_start_expr: bool = false;
         if let Some(equality_key) = key {
-            // match equality hashable key
-            is_start_expr = equality_key == TK_START_EXPR;
             if let Some(&child_id) = self.index.get(&(node_id, equality_key)) {
                 result.extend(self.query_internal(child_id, tail.clone(), mapper))
             }
@@ -321,7 +308,8 @@ impl<D: DuplicationStrategy> AtomTrie<D> {
             // match equality nonhashable key (see TrieKeyStorage::add_atom)
             if let Some(query) = atom {
                 let it = self.nodes[node_id].iter_match(AtomMatchMode::Equality)
-                    .filter(|&(_index, key)| key != TK_START_EXPR && key != TK_END_EXPR)
+                    // FIXME: should we check !is_hashable here?
+                    .filter(|&(_index, key)| !key.is_start_expr())
                     .map(|(_index, key)| (unsafe{ self.keys.get_atom_unchecked(key) }, key));
                 for (entry, key) in it {
                     if entry == query {
@@ -334,8 +322,8 @@ impl<D: DuplicationStrategy> AtomTrie<D> {
 
         // match unification matching entries with equality key
         if let Some(query) = atom {
-            if is_start_expr {
-                QueryKey::skip_expression(&mut tail);
+            if let Some(expr_size) = key.and_then(|k| k.as_start_expr()) {
+                QueryKey::skip_expression(&mut tail, expr_size);
             }
             let it = self.nodes[node_id].iter_match(AtomMatchMode::Unification)
                 .map(|(_index, key)| {
@@ -400,14 +388,7 @@ impl<D: DuplicationStrategy> AtomTrie<D> {
     fn unpack_atoms_internal<'a>(&'a self, node_id: NodeId)
         -> Box<dyn Iterator<Item=(Cow<'a, Atom>, NodeId)> + 'a>
     { 
-        Box::new(TrieNodeAtomIter::new(self, node_id)
-            .filter_map(|(atom, child_id)| {
-                if let IterResult::Atom(atom) = atom {
-                    Some((atom, child_id))
-                } else {
-                    None
-                }
-            }))
+        Box::new(TrieNodeAtomIter::new(self, node_id))
     }
 
     /// Remove specific list of [QueryKey] from the trie. Each key is matched
@@ -496,6 +477,8 @@ const TK_STORE_INDEX: usize = 0b10 << BITS_PER_ID;
 const TK_MATCH_EXACT: usize = 0b00 << BITS_PER_ID;
 const TK_MATCH_CUSTOM: usize = 0b01 << BITS_PER_ID;
 
+const TK_MAX_EXPRESSION_SIZE: usize = 2048;
+
 /// Compact representation of the atom from the trie. It represents each
 /// atom using single [usize] value. It keeps value of the key, key matching
 /// mode: equality or unification, key storage mode: hashable or indexed.
@@ -505,7 +488,7 @@ struct TrieKey(usize);
 impl TrieKey {
     #[allow(non_snake_case)]
     #[inline]
-    const fn new(store: TrieKeyStore, match_mode: AtomMatchMode, value: usize) -> Self {
+    const fn new(store: TrieKeyStore, match_mode: AtomMatchMode, mut value: usize) -> Self {
         let store = match store {
             TrieKeyStore::Hash => TK_STORE_HASH,
             TrieKeyStore::Index => TK_STORE_INDEX,
@@ -514,13 +497,21 @@ impl TrieKey {
             AtomMatchMode::Equality => TK_MATCH_EXACT,
             AtomMatchMode::Unification => TK_MATCH_CUSTOM,
         };
+        value += TK_MAX_EXPRESSION_SIZE;
         assert!(((!TK_VALUE_MASK) & value) == 0);
         Self(store | match_mode | value)
     }
 
+    #[allow(non_snake_case)]
+    #[inline]
+    const fn start_expr(size: usize) -> Self {
+        assert!(size < TK_MAX_EXPRESSION_SIZE);
+        Self(TK_STORE_HASH | TK_MATCH_EXACT | size)
+    }
+
     #[inline]
     fn value(&self) -> usize {
-        self.0 & TK_VALUE_MASK
+        self.0 & TK_VALUE_MASK - TK_MAX_EXPRESSION_SIZE
     }
 
     #[inline]
@@ -540,12 +531,32 @@ impl TrieKey {
             _ => unreachable!(),
         }
     }
+
+    #[inline]
+    fn is_start_expr(&self) -> bool {
+        self.0 < TK_MAX_EXPRESSION_SIZE
+            && self.store() == TrieKeyStore::Hash
+            && self.match_mode() == AtomMatchMode::Equality
+    }
+
+    #[inline]
+    fn as_start_expr(&self) -> Option<usize> {
+        if self.is_start_expr() {
+            Some(self.0 & TK_VALUE_MASK)
+        } else {
+            None
+        }
+    }
 }
 
 impl Debug for TrieKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TrieKey{{ match_mode: {:?}, store: {:?}, value: {:?} }}",
-            self.match_mode(), self.store(), self.value())
+        if self.is_start_expr() {
+            write!(f, "TrieKey{{ expr: {:?} }}", self.as_start_expr().unwrap())
+        } else {
+            write!(f, "TrieKey{{ match_mode: {:?}, store: {:?}, value: {:?} }}",
+                self.match_mode(), self.store(), self.value())
+        }
     }
 }
 
@@ -732,114 +743,127 @@ impl Iterator for TrieNodeIndexIter<'_> {
     }
 }
 
-/// Iterator over atoms starting in the [TrieNode].
-#[derive(Clone)]
-struct TrieNodeAtomIter<'a, D: DuplicationStrategy> {
-    trie: &'a AtomTrie<D>,
-    node_id: NodeId,
-    state: TrieNodeAtomIterState<'a, D>,
+type TrieNodeIter<'a> = std::iter::Chain<TrieNodeIndexIter<'a>, TrieNodeIndexIter<'a>>;
+
+struct Expression {
+    count: usize,
+    children: Vec<Atom>,
 }
 
-/// State of the [TrieNode] atoms iterator.
-#[derive(Default, Clone)]
-enum TrieNodeAtomIterState<'a, D: DuplicationStrategy> {
-    /// Iterator over items in the node.
-    VisitEntries(std::iter::Chain<TrieNodeIndexIter<'a>, TrieNodeIndexIter<'a>>),
-    /// Iterate through expression started in the node.
-    VisitExpression {
-        build_expr: Vec<Atom>,
-        cur_it: Box<TrieNodeAtomIter<'a, D>>,
-        next_state: Box<Self>,
-    },
-    /// End of the iterator.
-    #[default]
-    End,
+// FIXME: split state on expr and single
+struct TireNodeAtomIterState<'a> {
+    node: NodeId,
+    iter: TrieNodeIter<'a>,
+    path: Vec<(NodeId, TrieNodeIter<'a>)>,
+    expr: Vec<Expression>,     
+}
+
+struct TrieNodeAtomIter<'a, D: DuplicationStrategy> {
+    trie: &'a AtomTrie<D>,
+    // FIXME: insert content of the struct
+    state: TireNodeAtomIterState<'a>,
 }
 
 impl<'a, D: DuplicationStrategy> TrieNodeAtomIter<'a, D> {
     fn new(trie: &'a AtomTrie<D>, node_id: NodeId) -> Self {
+        let state = TireNodeAtomIterState {
+            node: node_id,
+            iter: trie.nodes[node_id].iter_all(),
+            path: Vec::new(),
+            expr: Vec::new(),
+        };
         Self {
             trie,
-            node_id,
-            state: TrieNodeAtomIterState::VisitEntries(trie.nodes[node_id].iter_all()),
+            state,
         }
     }
-
-    fn single_step(&mut self, key: TrieKey) -> Option<(IterResult<'a>, NodeId)> {
-        type State<'a, D> = TrieNodeAtomIterState<'a, D>;
-
-        let child_id = *self.trie.index.get(&(self.node_id, key)).unwrap();
-        if key == TK_END_EXPR {
-            Some((IterResult::EndExpr, child_id))
-        } else if key == TK_START_EXPR {
-            let state = std::mem::take(&mut self.state);
-            self.state = State::VisitExpression{
-                build_expr: Vec::new(),
-                cur_it: Box::new(TrieNodeAtomIter::new(self.trie, child_id)),
-                next_state: Box::new(state),
-            };
-            None
-        } else {
-            let atom = unsafe{ self.trie.keys.get_atom_unchecked(key) };
-            Some((IterResult::Atom(Cow::Borrowed(atom)), child_id))
-        }
-    }
-}
-
-#[derive(Debug)]
-enum IterResult<'a> {
-    EndExpr,
-    Atom(Cow<'a, Atom>),
 }
 
 impl<'a, D: DuplicationStrategy> Iterator for TrieNodeAtomIter<'a, D> {
-    type Item = (IterResult<'a>, NodeId);
+    type Item = (Cow<'a, Atom>, NodeId);
 
     fn next(&mut self) -> Option<Self::Item> {
-        type State<'a, D> = TrieNodeAtomIterState<'a, D>;
-
         loop {
-            match &mut self.state {
-                State::VisitEntries(it) => {
-                    match it.next() {
-                        Some((_i, key)) => {
-                            match self.single_step(key) {
-                                Some(result) => return Some(result),
-                                None => {},
+            if self.state.expr.len() == 1 {
+                let expr = self.state.expr.last_mut().unwrap();
+                if expr.count == 0 {
+                    let atom = Atom::expr(expr.children.clone());
+                    // FIXME: we need to convert all last expression atom into
+                    // stack 
+                    match expr.children.pop() {
+                        None => {},
+                        Some(atom) => {
+                            expr.count += 1;
+                            match atom {
+                                Atom::Expression(e) => {
+                                    let mut chidren = e.into_children();
+                                    if children.pop() {
+                                    }
+                                    self.state.expr.push()
+                                },
+                                _ => {},
                             }
                         }
-                        None => self.state = State::End,
                     }
-                },
-                State::VisitExpression { build_expr, cur_it, next_state } => {
-                    match cur_it.next() {
-                        Some((IterResult::EndExpr, child_id)) => {
-                            let atom = Atom::expr(build_expr.clone());
-                            return Some((IterResult::Atom(Cow::Owned(atom)), child_id))
-                        },
-                        Some((IterResult::Atom(atom), child_id)) => {
-                            // TODO: replace Vec by Option<Vec> ?
-                            let mut build_expr = std::mem::take(build_expr);
-                            build_expr.push(atom.into_owned());
-                            let state = std::mem::take(&mut self.state);
-                            self.state = State::VisitExpression {
-                                build_expr,
-                                cur_it: Box::new(TrieNodeAtomIter::new(self.trie, child_id)),
-                                next_state: Box::new(state)
-                            }
+                    (self.state.node, self.state.iter) = self.state.path.pop().unwrap();
+                    return Some((Cow::Owned(atom), self.state.node))
+                }
+            }
+            match self.state.iter.next() {
+                None => {
+                    match self.state.path.pop() {
+                        Some(prev) => {
+                            self.state.expr.last_mut().unwrap().count += 1;
+                            (self.state.node, self.state.iter) = prev;
                         },
                         None => {
-                            let mut expr = std::mem::take(build_expr);
-                            expr.pop();
-                            let mut next_state = std::mem::take(next_state);
-                            if let State::VisitExpression { build_expr, cur_it: _, next_state: _ } = &mut *next_state {
-                                *build_expr = expr;
-                            }
-                            self.state = *next_state;
-                        }
+                            return None
+                        },
                     }
                 },
-                State::End => return None,
+                Some((sub_node_id, key)) => {
+                    match (self.state.expr.last_mut(), key.as_start_expr()) {
+                        (None, None) => {
+                            let atom = unsafe{ self.trie.keys.get_atom_unchecked(key) };
+                            return Some((Cow::Borrowed(atom), sub_node_id))
+                        },
+                        (_, Some(expr_size)) => {
+                            self.state.expr.push(Expression {
+                                count: expr_size,
+                                children: Vec::new(),
+                            });
+                            let prev = std::mem::replace(&mut self.state.iter, self.trie.nodes[sub_node_id].iter_all());
+                            self.state.path.push((self.state.node, prev));
+                        },
+                        (Some(expr), None) if expr.count == 0 => {
+                            // FIXME: we need to convert all last expressions in stack with count
+                            // == 0 into atoms
+                            let atom = unsafe{ self.trie.keys.get_atom_unchecked(key) };
+                            let mut children = expr.children.clone();
+                            children.push(atom.clone());
+                            let atom = Atom::expr(children);
+
+                            let expr_len = self.state.expr.len();
+                            if expr_len > 1 {
+                                self.state.expr.pop();
+                                let e = self.state.expr.last_mut().unwrap();
+                                e.children.push(atom);
+                                e.count -= 1;
+                                let prev = std::mem::replace(&mut self.state.iter, self.trie.nodes[sub_node_id].iter_all());
+                                self.state.path.push((self.state.node, prev));
+                            } else {
+                                return Some((Cow::Owned(atom), sub_node_id))
+                            }
+                        },
+                        (Some(expr), None) => {
+                            let atom = unsafe{ self.trie.keys.get_atom_unchecked(key) };
+                            expr.children.push(atom.clone());
+                            expr.count -= 1;
+                            let prev = std::mem::replace(&mut self.state.iter, self.trie.nodes[sub_node_id].iter_all());
+                            self.state.path.push((self.state.node, prev));
+                        },
+                    }
+                },
             }
         }
     }

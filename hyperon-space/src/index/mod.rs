@@ -14,8 +14,7 @@ use std::borrow::Cow;
 #[derive(PartialEq, Debug)]
 enum AtomToken<'a> {
     Atom(Cow<'a, Atom>),
-    StartExpr(Option<&'a Atom>), // atom is required to match custom entries from index
-    EndExpr,
+    StartExpr(Option<&'a Atom>, usize), // atom is required to match custom entries from index
 }
 
 #[derive(Default, Debug, Clone)]
@@ -23,7 +22,7 @@ enum AtomIterState<'a> {
     /// Start from a Symbol, Variable or Grounded
     StartSingle(Cow<'a, Atom>),
     /// Start from Expression atom
-    StartExpression(Cow<'a, Atom>),
+    StartExpression(Cow<'a, Atom>, usize),
 
     /// Iterate via Expression recursively
     Iterate {
@@ -56,10 +55,14 @@ impl<'a> AtomIter<'a> {
 
     fn from_cow(atom: Cow<'a, Atom>) -> Self {
         let state = match atom {
-            Cow::Owned(Atom::Expression(_)) =>
-                AtomIterState::StartExpression(atom),
-            Cow::Borrowed(Atom::Expression(_)) =>
-                AtomIterState::StartExpression(atom),
+            Cow::Owned(Atom::Expression(ref e)) => {
+                let size = e.children().len();
+                AtomIterState::StartExpression(atom, size)
+            },
+            Cow::Borrowed(Atom::Expression(e)) => {
+                let size = e.children().len();
+                AtomIterState::StartExpression(atom, size)
+            },
             _ => AtomIterState::StartSingle(atom),
         };
         Self{ state }
@@ -77,23 +80,23 @@ impl<'a> Iterator for AtomIter<'a> {
                 self.state = State::End;
                 Some(AtomToken::Atom(atom))
             },
-            State::StartExpression(Cow::Owned(Atom::Expression(expr))) => {
+            State::StartExpression(Cow::Owned(Atom::Expression(expr)), size) => {
                 self.state = State::Iterate {
                     expr: Cow::Owned(expr),
                     idx: 0,
                     next: Box::new(State::End)
                 };
-                Some(AtomToken::StartExpr(None))
+                Some(AtomToken::StartExpr(None, size))
             },
-            State::StartExpression(Cow::Borrowed(atom @ Atom::Expression(expr))) => {
+            State::StartExpression(Cow::Borrowed(atom @ Atom::Expression(expr)), size) => {
                 self.state = State::Iterate {
                     expr: Cow::Borrowed(expr),
                     idx: 0,
                     next: Box::new(State::End)
                 };
-                Some(AtomToken::StartExpr(Some(atom)))
+                Some(AtomToken::StartExpr(Some(atom), size))
             },
-            State::StartExpression(_) => panic!("Only expressions are expected!"),
+            State::StartExpression(_, _) => panic!("Only expressions are expected!"),
             State::Iterate { expr, idx, next } => {
                 if idx < expr.children().len() {
                     fn extract_atom(mut expr: Cow<'_, ExpressionAtom>, idx: usize) -> (Cow<'_, Atom>, Cow<'_, ExpressionAtom>) {
@@ -113,12 +116,13 @@ impl<'a> Iterator for AtomIter<'a> {
                     let next_state = State::Iterate{ expr, idx: idx + 1, next };
                     match atom {
                         Cow::Owned(Atom::Expression(expr)) => {
+                            let size = expr.children().len();
                             self.state = State::Iterate {
                                 expr: Cow::Owned(expr),
                                 idx: 0,
                                 next: Box::new(next_state)
                             };
-                            Some(AtomToken::StartExpr(None))
+                            Some(AtomToken::StartExpr(None, size))
                         },
                         Cow::Borrowed(atom @ Atom::Expression(expr)) => {
                             self.state = State::Iterate {
@@ -126,7 +130,7 @@ impl<'a> Iterator for AtomIter<'a> {
                                 idx: 0,
                                 next: Box::new(next_state)
                             };
-                            Some(AtomToken::StartExpr(Some(atom)))
+                            Some(AtomToken::StartExpr(Some(atom), expr.children().len()))
                         },
                         _ => {
                             self.state = next_state;
@@ -135,7 +139,7 @@ impl<'a> Iterator for AtomIter<'a> {
                     }
                 } else {
                     self.state = *next;
-                    Some(AtomToken::EndExpr)
+                    None
                 }
             },
             State::End => None,
@@ -174,8 +178,7 @@ impl<D: DuplicationStrategy> AtomIndex<D> {
 
     fn atom_token_to_insert_index_key<'a>(token: AtomToken<'a>) -> InsertKey {
         match token {
-            AtomToken::StartExpr(_) => InsertKey::StartExpr,
-            AtomToken::EndExpr => InsertKey::EndExpr,
+            AtomToken::StartExpr(_, size) => InsertKey::StartExpr(size),
             AtomToken::Atom(Cow::Owned(atom)) => InsertKey::Atom(atom),
             _ => panic!("Only owned atoms are expected to be inserted"),
         }
@@ -190,8 +193,7 @@ impl<D: DuplicationStrategy> AtomIndex<D> {
 
     fn atom_token_to_query_index_key<'a>(token: AtomToken<'a>) -> QueryKey<'a> {
         match token {
-            AtomToken::StartExpr(Some(atom)) => QueryKey::StartExpr(atom),
-            AtomToken::EndExpr => QueryKey::EndExpr,
+            AtomToken::StartExpr(Some(atom), size) => QueryKey::StartExpr(atom, size),
             AtomToken::Atom(Cow::Borrowed(atom)) => QueryKey::Atom(atom),
             _ => panic!("Only borrowed atoms are expected to be queried"),
         }
