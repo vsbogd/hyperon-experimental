@@ -29,6 +29,11 @@ on:
         default: "Debug"
         required: false
         type: string
+      test-das-integration:
+        description: "Enable DAS integration test"
+        default: false
+        required: false
+        type: boolean
 
 env:
   CMAKE_CONFIG_ARGUMENT: "${{ startsWith(inputs.os, 'windows') && format('--config {0}', inputs.build-type) || '' }}"
@@ -48,7 +53,7 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install protobuf-compiler (required by Das)
+      - name: Install protobuf-compiler (required by DAS)
         shell: bash
         run: |
           if [[ "${{ inputs.os }}" == *"ubuntu"* ]]; then
@@ -148,3 +153,25 @@ jobs:
         working-directory: ./build
         shell: bash
         run: cmake --build . --target check ${{ env.CMAKE_CONFIG_ARGUMENT }}
+
+      - name: DAS integration test - Set up Python
+        if: ${{ inputs.test-das-integration }}
+        id: das-setup-py
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: DAS integration test - Build MeTTa REPL
+        if: ${{ inputs.test-das-integration }}
+        working-directory: ./repl
+        run: |
+          cargo build
+
+      - name: DAS integration test - Run
+        if: ${{ inputs.test-das-integration }}
+        working-directory: ./integration_tests/das
+        shell: bash
+        env:
+          PYTHON: ${{ steps.das-setup-py.outputs.python-path }}
+          DAS_VERSION: "0.5.0"
+        run: ./run.sh

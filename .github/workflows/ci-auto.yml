@@ -16,3 +16,4 @@ jobs:
       os: "ubuntu-22.04"
       cmake-version: "3.24.x"
       build-type: "Debug"
+      test-das-integration: false
