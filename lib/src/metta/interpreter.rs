@@ -816,23 +816,13 @@ fn unify(stack: Stack, bindings: Bindings) -> Vec<InterpretedAtom> {
         }
     };
 
-    let matches: Vec<Bindings> = match_atoms(&atom, &pattern).collect();
-    let result = |bindings| {
-        let then = apply_bindings_to_atom_move(then.clone(), &bindings);
-        let stack = Stack::finished(prev.clone(), then);
-        InterpretedAtom(stack, bindings)
-    };
-    let bindings_ref = &bindings;
-    let matches: Vec<InterpretedAtom> = matches.into_iter().flat_map(move |b| {
-        b.merge(bindings_ref).into_iter().filter_map(move |b| {
-            if b.has_loops() {
-                None
-            } else {
-                Some(result(b))
-            }
+    let matches: Vec<InterpretedAtom> = match_atoms_v2(&atom, &pattern, bindings.clone())
+        .map(|bindings| {
+            let then = apply_bindings_to_atom_move(then.clone(), &bindings);
+            let stack = Stack::finished(prev.clone(), then);
+            InterpretedAtom(stack, bindings)
         })
-    })
-    .collect();
+        .collect();
     if matches.is_empty() {
         finished_result(else_, bindings, prev)
     } else {
@@ -1057,13 +1047,10 @@ fn match_types(type1: &Atom, type2: &Atom, bindings: Bindings) -> Result<MatchRe
         || *type2 == ATOM_TYPE_ATOM {
         Ok(once(bindings))
     } else {
-        let bindings_copy = bindings.clone();
-        let mut result = match_atoms(type1, type2)
-            .flat_map(move |b| b.merge(&bindings).into_iter())
-            .peekable();
+        let mut result = match_atoms_v2(type1, type2, bindings.clone()).peekable();
         if result.peek().is_none() {
             log::trace!("match_types: no match: {} !~ {}", type1, type2);
-            Err(once(bindings_copy))
+            Err(once(bindings))
         } else {
             if log::log_enabled!(log::Level::Trace) {
                 let result: Vec<Bindings> = result.collect();

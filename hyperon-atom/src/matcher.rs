@@ -318,7 +318,7 @@ impl Bindings {
     }
 
     fn match_values(&self, current: &Atom, value: &Atom) -> BindingsSet {
-        match_atoms_recursively(current, value).into_iter()
+        match_atoms_recursively(current, value, BindingsSet::single()).into_iter()
             .flat_map(|binding| binding.merge(self))
             .collect()
     }
@@ -1087,7 +1087,7 @@ pub type MatchResultIter = BoxedIter<'static, Bindings>;
 /// assert_eq!(empty, vec![]);
 /// ```
 pub fn match_atoms<'a>(left: &'a Atom, right: &'a Atom) -> MatchResultIter {
-    Box::new(match_atoms_recursively(left, right).into_iter()
+    Box::new(match_atoms_recursively(left, right, BindingsSet::single()).into_iter()
         .filter(|binding| {
             if binding.has_loops() {
                 log::trace!("match_atoms: remove bindings which contains a variable loop: {}", binding);
@@ -1098,21 +1098,33 @@ pub fn match_atoms<'a>(left: &'a Atom, right: &'a Atom) -> MatchResultIter {
         }))
 }
 
-fn match_atoms_recursively(left: &Atom, right: &Atom) -> BindingsSet {
+pub fn match_atoms_v2<'a>(left: &'a Atom, right: &'a Atom, bindings: Bindings) -> MatchResultIter {
+    Box::new(match_atoms_recursively(left, right, BindingsSet::from(bindings)).into_iter()
+        .filter(|binding| {
+            if binding.has_loops() {
+                log::trace!("match_atoms: remove bindings which contains a variable loop: {}", binding);
+                false
+            } else {
+                true
+            }
+        }))
+}
+
+fn match_atoms_recursively(left: &Atom, right: &Atom, bindings_set: BindingsSet) -> BindingsSet {
     let res = match (left, right) {
-        (Atom::Symbol(a), Atom::Symbol(b)) if a == b => BindingsSet::single(),
-        (Atom::Variable(dv), Atom::Variable(pv)) => BindingsSet::single().add_var_equality(dv, pv),
+        (Atom::Symbol(a), Atom::Symbol(b)) if a == b => bindings_set,
+        (Atom::Variable(dv), Atom::Variable(pv)) => bindings_set.add_var_equality(dv, pv),
         // TODO: If GroundedAtom is matched with VariableAtom there are
         // two way to calculate match: (1) pass variable to the
         // GroundedAtom::match(); (2) assign GroundedAtom to the Variable.
         // Returning both results breaks tests right now.
-        (Atom::Variable(v), b) => BindingsSet::single().add_var_binding(v, b),
-        (a, Atom::Variable(v)) => BindingsSet::single().add_var_binding(v, a),
+        (Atom::Variable(v), b) => bindings_set.add_var_binding(v, b),
+        (a, Atom::Variable(v)) => bindings_set.add_var_binding(v, a),
         (Atom::Expression(ExpressionAtom{ children: a, ..  }), Atom::Expression(ExpressionAtom{ children: b, .. }))
         if a.len() == b.len() => {
-            a.iter().zip(b.iter()).fold(BindingsSet::single(),
+            a.iter().zip(b.iter()).fold(bindings_set,
             |acc, (a, b)| {
-                acc.merge(&match_atoms_recursively(a, b))
+                match_atoms_recursively(a, b, acc)
             })
         },
         (Atom::Grounded(a), _) if a.as_grounded().as_match().is_some() => {
@@ -1121,7 +1133,7 @@ fn match_atoms_recursively(left: &Atom, right: &Atom) -> BindingsSet {
         (_, Atom::Grounded(b)) if b.as_grounded().as_match().is_some() => {
             b.as_grounded().as_match().unwrap().match_(left).collect()
         },
-        (Atom::Grounded(a), Atom::Grounded(b)) if a.eq_gnd(AsRef::as_ref(b)) => BindingsSet::single(),
+        (Atom::Grounded(a), Atom::Grounded(b)) if a.eq_gnd(AsRef::as_ref(b)) => bindings_set,
         _ => BindingsSet::empty(),
     };
     log::trace!("match_atoms_recursively: {} ~ {} => {}", left, right, res);
