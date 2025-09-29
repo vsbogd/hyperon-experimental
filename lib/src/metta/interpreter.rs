@@ -1344,8 +1344,14 @@ fn check_if_function_type_is_applicable_<'a>(expr: &'a Atom, op_type: Atom, mut 
             match actual_args {
                 [] => once((Err(error_atom(expr.clone(), INCORRECT_NUMBER_OF_ARGUMENTS_SYMBOL)), bindings)),
                 [actual_arg, args_tail @ ..] => {
-                    if is_meta_type(&formal_arg_type) && match_meta_types(&get_meta_type(actual_arg), &formal_arg_type) {
-                        check_if_function_type_is_applicable_(expr, op_type, arg_types_tail, args_tail, expected_type, space, bindings)
+                    if is_meta_type(&formal_arg_type) {
+                        let actual_arg_type = get_meta_type(actual_arg);
+                        if match_meta_types(&actual_arg_type, &formal_arg_type) {
+                            check_if_function_type_is_applicable_(expr, op_type, arg_types_tail, args_tail, expected_type, space, bindings)
+                        } else {
+                            let arg_id = TryInto::<&ExpressionAtom>::try_into(expr).unwrap().children().len() - arg_types_len;
+                            Box::new(std::iter::once((Err(Atom::expr([ERROR_SYMBOL, expr.clone(), Atom::expr([BAD_ARG_TYPE_SYMBOL, Atom::gnd(Number::Integer(arg_id as i64)), formal_arg_type, actual_arg_type])])), bindings)))
+                        }
                     } else {
                         let actual_arg_types = get_atom_types(space, actual_arg)
                             .into_iter()
