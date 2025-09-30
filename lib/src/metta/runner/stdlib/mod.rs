@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn metta_issue_872() {
-        assert_eq!(run_program("!(bind! &i 0) !(assertEqual (bind! &i 1) (Error (bind! 0 1) (BadArgType 1 Symbol Number)))"),
+        assert_eq!(run_program("!(bind! &i 0) !(assertEqual (bind! &i 1) (Error (bind! 0 1) (BadArgType 1 Symbol Grounded)))"),
                    Ok(vec![vec![UNIT_ATOM], vec![UNIT_ATOM]]));
     }
 
