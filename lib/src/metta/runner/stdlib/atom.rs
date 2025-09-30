@@ -492,8 +492,8 @@ mod tests {
         assert_eq!(result, Ok(vec![vec![expr!(a)]]));
         let result = run_program("!(car-atom ())");
         assert_eq!(result, Ok(vec![vec![expr!("Error" ("car-atom" ()) {Str::from_str("car-atom expects a non-empty expression as an argument")})]]));
-        let result = run_program("!(car-atom A)");
-        assert_eq!(result, Ok(vec![vec![expr!("Error" ("car-atom" "A") {Str::from_str("car-atom expects a non-empty expression as an argument")})]]));
+        let result = run_program("!(assertEqual (car-atom A) (Error (car-atom A) (BadArgType 1 Expression Symbol)))");
+        assert_eq!(result, Ok(vec![vec![UNIT_ATOM]]));
     }
 
     #[test]
@@ -501,8 +501,8 @@ mod tests {
         assert_eq!(run_program(&format!("!(cdr-atom (a b c))")), Ok(vec![vec![expr!("b" "c")]]));
         assert_eq!(run_program(&format!("!(cdr-atom ($a b $c))")), Ok(vec![vec![expr!("b" c)]]));
         assert_eq!(run_program(&format!("!(cdr-atom ())")), Ok(vec![vec![expr!("Error" ("cdr-atom" ()) {Str::from_str("cdr-atom expects a non-empty expression as an argument")})]]));
-        assert_eq!(run_program(&format!("!(cdr-atom a)")), Ok(vec![vec![expr!("Error" ("cdr-atom" "a") {Str::from_str("cdr-atom expects a non-empty expression as an argument")})]]));
-        assert_eq!(run_program(&format!("!(cdr-atom $a)")), Ok(vec![vec![expr!("Error" ("cdr-atom" a) {Str::from_str("cdr-atom expects a non-empty expression as an argument")})]]));
+        assert_eq!(run_program(&format!("!(assertEqual (cdr-atom a) (Error (cdr-atom a) (BadArgType 1 Expression Symbol)))")), Ok(vec![vec![UNIT_ATOM]]));
+        assert_eq!(run_program(&format!("!(assertEqual (cdr-atom $a) (Error (cdr-atom $a) (BadArgType 1 Expression Variable)))")), Ok(vec![vec![UNIT_ATOM]]));
     }
 
     #[test]
