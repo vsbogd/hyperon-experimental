@@ -1,0 +1,19 @@
+[package]
+name = "hyperonc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regex = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+
+hyperon-common = { workspace = true }
+hyperon-atom = { workspace = true }
+hyperon-space = { workspace = true }
+hyperon = { workspace = true }
+
+[lib]
+name = "hyperonc"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib"]
