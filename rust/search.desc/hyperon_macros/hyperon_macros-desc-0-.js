@@ -1,0 +1,1 @@
+searchState.loadedDescShard("hyperon_macros", 0, "Constructs new Atom using MeTTa S-expressions syntax for …\nSimilar to metta! but constructs a constant Atom. Main …")

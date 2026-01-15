@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["CaptureOp","EqualOp","IfEqualOp","MatchOp","NopOp","PragmaOp","SealedOp","SuperposeOp"]};
