@@ -8,8 +8,8 @@ thread, and may be called concurrently.  Therefore these functions must be fully
 @note <code>module_descriptor_t</code> objects must be freed with <code>module_descriptor_free</code> or passed to
 a function that assumes responsibility for freeing them</dd><dt><a class="struct" href="struct.module_id_t.html" title="struct hyperonc::module::module_id_t">module_<wbr>id_<wbr>t</a></dt><dd>@brief Identifies a loaded module inside a specific <code>metta_t</code> MeTTa runner
 @ingroup module_group
-@note It is not necessary to free <code>module_id_t</code> types</dd><dt><a class="struct" href="struct.module_loader_t.html" title="struct hyperonc::module::module_loader_t">module_<wbr>loader_<wbr>t</a></dt><dd>@brief A C representation of the Rust <a href="../../hyperon/metta/runner/modules/trait.ModuleLoader.html" title="trait hyperon::metta::runner::modules::ModuleLoader">ModuleLoader</a> interface. User can
-provide <a href="../../hyperon/metta/runner/modules/trait.ModuleLoader.html" title="trait hyperon::metta::runner::modules::ModuleLoader">ModuleLoader</a> methods implemented in C.
+@note It is not necessary to free <code>module_id_t</code> types</dd><dt><a class="struct" href="struct.module_loader_t.html" title="struct hyperonc::module::module_loader_t">module_<wbr>loader_<wbr>t</a></dt><dd>@brief A C representation of the Rust [ModuleLoader] interface. User can
+provide [ModuleLoader] methods implemented in C.
 @ingroup module_group</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.metta_mod_ref_tokenizer.html" title="fn hyperonc::module::metta_mod_ref_tokenizer">metta_<wbr>mod_<wbr>ref_<wbr>tokenizer</a></dt><dd>@brief Returns tokenizer of the MeTTa module
 @ingroup module_group
 @param[in]  mod_ref  A pointer to the <code>metta_mod_ref_t</code>
